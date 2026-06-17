@@ -10,6 +10,10 @@ function App() {
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [description, setDescription] = useState(""); // 💡 追加：商品説明
+  const [imageUrl, setImageUrl] = useState("");       // 💡 追加：画像URL
+  const [userPoints, setUserPoints] = useState(10000); // 💡 追加：アプリ内通貨
+  
   const [items, setItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [searchKeyword, setSearchKeyword] = useState("");
@@ -17,6 +21,20 @@ function App() {
   const [commentInputs, setCommentInputs] = useState({});
 
   const API_URL = "https://hackathon-backend-242925435490.asia-northeast1.run.app";
+
+  // 💡 追加：ユーザーのポイント（通貨）を取得する関数
+  const fetchPoints = useCallback(async () => {
+    if (!loginUser) return;
+    try {
+      const response = await fetch(`${API_URL}/get-points?user_email=${loginUser.email}`);
+      if (response.ok) {
+        const data = await response.json();
+        setUserPoints(data.points ?? 10000);
+      }
+    } catch (error) {
+      console.error("ポイント取得エラー:", error);
+    }
+  }, [loginUser]);
 
   const fetchNotifications = useCallback(async () => {
     if (!loginUser) return;
@@ -59,8 +77,9 @@ function App() {
     if (loginUser) {
       fetchItems();
       fetchNotifications();
+      fetchPoints(); // 💡 ログイン時に通貨を読み込む
     }
-  }, [loginUser, searchKeyword, fetchItems, fetchNotifications]);
+  }, [loginUser, searchKeyword, fetchItems, fetchNotifications, fetchPoints]);
 
   const handleAuth = (e) => {
     e.preventDefault();
@@ -74,9 +93,21 @@ function App() {
       const response = await fetch(`${API_URL}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name, price: parseInt(price, 10), user_email: loginUser.email }),
+        body: JSON.stringify({ 
+          name: name, 
+          price: parseInt(price, 10), 
+          user_email: loginUser.email,
+          description: description, // 💡 追加：商品説明をバックエンドへ送る
+          image_url: imageUrl        // 💡 追加：画像URLをバックエンドへ送る
+        }),
       });
-      if (response.ok) { setName(""); setPrice(""); fetchItems(); }
+      if (response.ok) { 
+        setName(""); 
+        setPrice(""); 
+        setDescription(""); // フォームをクリア
+        setImageUrl("");    // フォームをクリア
+        fetchItems(); 
+      }
     } catch (error) { console.error(error); }
   };
 
@@ -115,10 +146,21 @@ function App() {
   };
 
   const handleBuy = async (item) => {
-    if (!window.confirm(`「${item.name}」を購入しますか？`)) return;
+    if (userPoints < item.price) {
+      alert(`⚠️ ポイントが足りません！\n現在の所持：${userPoints.toLocaleString()} pt\n商品の価格：${item.price.toLocaleString()} 円`);
+      return;
+    }
+    if (!window.confirm(`「${item.name}」を ${item.price.toLocaleString()} pt で購入しますか？`)) return;
     try {
       const response = await fetch(`${API_URL}/buy-item?id=${item.id}&user_email=${loginUser.email}`, { method: "POST" });
-      if (response.ok) { alert("🎉 購入が完了しました！"); fetchItems(); }
+      if (response.ok) { 
+        alert("🎉 アプリ内通貨での購入が完了しました！"); 
+        fetchItems(); 
+        fetchPoints(); // 💡 残高ポイントを更新
+      } else {
+        const errData = await response.json();
+        alert(`エラー: ${errData.detail || "購入に失敗しました"}`);
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -138,6 +180,9 @@ function App() {
         fetch(`${API_URL}/notifications/read?user_email=${loginUser.email}`, { method: "POST" });
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       }
+    }
+    if (tab === "profile" || tab === "home") {
+      fetchPoints(); // タブ切り替え時にポイントを同期
     }
   };
 
@@ -180,6 +225,12 @@ function App() {
           </div>
         ) : (
           <div>
+            {/* 💡 追加：アプリ内通貨（ウォレット）ヘッダー表示 */}
+            <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", color: "#ffffff", padding: "15px 20px", borderRadius: "14px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)" }}>
+              <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>💰 アプリ内通貨アカウント</div>
+              <div style={{ fontSize: "1.4rem", fontWeight: "800" }}>{userPoints.toLocaleString()} <span style={{ fontSize: "1rem", fontWeight: "normal" }}>pt</span></div>
+            </div>
+
             <div style={{ display: "flex", background: "#fff", borderRadius: "12px", padding: "6px", marginBottom: "25px", border: "1px solid #e2e8f0" }}>
               <button onClick={() => handleTabChange("home")} style={{ flex: 1, padding: "10px", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", backgroundColor: activeTab === "home" ? "#f1f5f9" : "transparent" }}>🏠 ホーム</button>
               <button onClick={() => handleTabChange("notifications")} style={{ flex: 1, padding: "10px", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", backgroundColor: activeTab === "notifications" ? "#f1f5f9" : "transparent", display: "flex", justifyContent: "center", gap: "6px" }}>
@@ -194,40 +245,69 @@ function App() {
                   <span>🔍</span><input type="text" placeholder="商品を検索" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} style={{ width: "100%", border: "none", outline: "none" }}/>
                 </div>
 
+                {/* 💡 拡張：出品フォーム（商品説明・写真URLを追加） */}
                 <div style={{ background: "#ffffff", padding: "25px", borderRadius: "16px", marginBottom: "25px", border: "1px solid #e2e8f0" }}>
-                  <form onSubmit={handleSubmit} style={{ display: "flex", gap: "10px" }}>
-                    <input type="text" placeholder="商品名" value={name} onChange={(e) => setName(e.target.value)} required style={{ flex: 2, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
-                    <input type="number" placeholder="価格" value={price} onChange={(e) => setPrice(e.target.value)} required style={{ flex: 1, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
-                    <button type="submit" style={{ padding: "10px 20px", background: "#059669", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>出品</button>
+                  <h4 style={{ margin: "0 0 15px 0", color: "#475569" }}>📦 商品を出品する</h4>
+                  <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    <div style={{ display: "flex", gap: "10px" }}>
+                      <input type="text" placeholder="商品名" value={name} onChange={(e) => setName(e.target.value)} required style={{ flex: 2, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
+                      <input type="number" placeholder="価格 (pt)" value={price} onChange={(e) => setPrice(e.target.value)} required style={{ flex: 1, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
+                    </div>
+                    <textarea placeholder="商品の詳細な説明（状態や特徴など）" value={description} onChange={(e) => setDescription(e.target.value)} rows="2" style={{ padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px", resize: "none", fontFamily: "inherit" }}/>
+                    <input type="url" placeholder="画像URL (空欄なら自動でダミー画像が適用されます)" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} style={{ padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
+                    <button type="submit" style={{ padding: "12px", background: "#059669", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", marginTop: "4px" }}>商品をフリマに出品する</button>
                   </form>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
                   {items.map((item) => (
                     <div id={`item-card-${item.id}`} key={item.id} style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
+                      {/* 💡 追加：商品の写真表示（URLがあればそれを表示、なければユニークな街並み・雑貨のプレースホルダー画像を自動生成） */}
+                      <div style={{ width: "100%", height: "200px", backgroundColor: "#f1f5f9", borderRadius: "12px", marginBottom: "15px", overflow: "hidden", border: "1px solid #e2e8f0", display: "flex", justifyContent: "center", alignItems: "center", position: "relative" }}>
+                        <img 
+                          src={item.image_url && item.image_url.trim() !== "" ? item.image_url : `https://picsum.photos/id/${(item.id % 50) + 10}/600/400`} 
+                          alt={item.name} 
+                          style={{ width: "100%", height: "100%", objectFit: "cover", filter: item.is_sold ? "grayscale(40%)" : "none" }}
+                          onError={(e) => { e.target.src = "https://picsum.photos/600/400?blur=2"; }}
+                        />
+                        {item.is_sold && (
+                          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.4)", display: "flex", justifyContent: "center", alignItems: "center" }}>
+                            <span style={{ color: "white", fontSize: "1.8rem", fontWeight: "900", letterSpacing: "2px", border: "3px solid white", padding: "6px 20px", transform: "rotate(-10deg)" }}>SOLD OUT</span>
+                          </div>
+                        )}
+                      </div>
+
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
-                        <div>
-                          <div style={{ fontWeight: "700", fontSize: "1.1rem", textDecoration: item.is_sold ? "line-through" : "none" }}>
+                        <div style={{ flex: 1, paddingRight: "10px" }}>
+                          <div style={{ fontWeight: "700", fontSize: "1.2rem", textDecoration: item.is_sold ? "line-through" : "none", color: "#0f172a" }}>
                             <span style={{ fontSize: "0.85rem", color: "#94a3b8", marginRight: "6px" }}>[ID: {item.id}]</span>
                             {item.name}
                           </div>
-                          <div style={{ color: item.is_sold ? "#94a3b8" : "#059669", fontWeight: "800", fontSize: "1.05rem" }}>{item.price.toLocaleString()} 円</div>
+                          <div style={{ color: item.is_sold ? "#94a3b8" : "#2563eb", fontWeight: "800", fontSize: "1.2rem", marginTop: "2px" }}>{item.price.toLocaleString()} pt</div>
+                          
+                          {/* 💡 追加：商品の説明テキスト表示 */}
+                          {item.description && (
+                            <p style={{ fontSize: "0.9rem", color: "#475569", margin: "8px 0 0 0", backgroundColor: "#f8fafc", padding: "8px 12px", borderRadius: "8px", borderLeft: "3px solid #cbd5e1", lineHeight: "1.4" }}>
+                              {item.description}
+                            </p>
+                          )}
                         </div>
-                        <div style={{ display: "flex", gap: "6px" }}>
-                          <button onClick={() => handleLike(item)} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", backgroundColor: item.is_liked ? "#fff1f2" : "#f8fafc" }}>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end", minWidth: "100px" }}>
+                          <button onClick={() => handleLike(item)} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", backgroundColor: item.is_liked ? "#fff1f2" : "#f8fafc", width: "100%" }}>
                             {item.is_liked ? "❤️" : "🖤"} {item.like_count || 0}
                           </button>
                           
                           {item.is_sold ? (
-                            <span style={{ background: "#f1f5f9", color: "#64748b", padding: "6px 12px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700" }}>SOLD</span>
+                            <span style={{ background: "#f1f5f9", color: "#64748b", padding: "6px 12px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700", textAlign: "center", width: "100%", boxSizing: "border-box" }}>売り切れ</span>
                           ) : item.user_email === loginUser.email ? (
-                            <span style={{ background: "#f8fafc", color: "#94a3b8", border: "1px dashed #cbd5e1", padding: "6px 12px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700" }}>自分の商品</span>
+                            <span style={{ background: "#f8fafc", color: "#94a3b8", border: "1px dashed #cbd5e1", padding: "6px 12px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700", textAlign: "center", width: "100%", boxSizing: "border-box" }}>マイ出品</span>
                           ) : (
-                            <button onClick={() => handleBuy(item)} style={{ background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem" }}>購入</button>
+                            <button onClick={() => handleBuy(item)} style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "700", width: "100%" }}>購入する</button>
                           )}
                           
                           {item.user_email === loginUser.email && (
-                            <button onClick={() => handleDelete(item)} style={{ background: "#fef2f2", color: "#ef4444", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem" }}>🗑️</button>
+                            <button onClick={() => handleDelete(item)} style={{ background: "#fef2f2", color: "#ef4444", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem", width: "100%" }}>削除 🗑️</button>
                           )}
                         </div>
                       </div>
@@ -248,7 +328,7 @@ function App() {
                           ))}
                         </div>
                         <div style={{ display: "flex", gap: "6px" }}>
-                          <input type="text" placeholder="コメント" value={commentInputs[item.id] || ""} onChange={(e) => setCommentInputs((prev) => ({ ...prev, [item.id]: e.target.value }))} style={{ flex: 1, padding: "6px 10px", border: "1px solid #cbd5e1", borderRadius: "6px" }}/>
+                          <input type="text" placeholder="コメントする..." value={commentInputs[item.id] || ""} onChange={(e) => setCommentInputs((prev) => ({ ...prev, [item.id]: e.target.value }))} style={{ flex: 1, padding: "6px 10px", border: "1px solid #cbd5e1", borderRadius: "6px" }}/>
                           <button onClick={() => handlePostComment(item.id)} style={{ padding: "6px 12px", background: "#475569", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>送信</button>
                         </div>
                       </div>
@@ -280,7 +360,12 @@ function App() {
               <div style={{ background: "#ffffff", padding: "30px", borderRadius: "16px", textAlign: "center" }}>
                 <h3 style={{ margin: "0 0 5px 0" }}>マイページ</h3>
                 <p style={{ color: "#64748b" }}>{loginUser.email}</p>
-                <button onClick={() => { setLoginUser(null); setActiveTab("home"); }} style={{ padding: "10px 20px", background: "#ef4444", color: "white", border: "none", borderRadius: "8px" }}>ログアウト</button>
+                {/* 💡 追加：マイページ内でもウォレット残高を確認可能に */}
+                <div style={{ background: "#f8fafc", padding: "15px", borderRadius: "12px", margin: "20px 0", border: "1px solid #e2e8f0" }}>
+                  <div style={{ color: "#64748b", fontSize: "0.85rem" }}>現在の所持ポイント</div>
+                  <div style={{ fontSize: "1.6rem", fontWeight: "800", color: "#1d4ed8", marginTop: "4px" }}>{userPoints.toLocaleString()} pt</div>
+                </div>
+                <button onClick={() => { setLoginUser(null); setActiveTab("home"); }} style={{ padding: "10px 20px", background: "#ef4444", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>ログアウト</button>
               </div>
             )}
           </div>

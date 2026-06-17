@@ -15,7 +15,7 @@ function App() {
   const [items, setItems] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
 
-  // ⚠️ Cloud Runの本番URLに変更！
+  // ⚠️ Cloud Runの本番URL
   const API_URL = "https://hackathon-backend-242925435490.asia-northeast1.run.app";
 
   // --- API通信用関数 ---
@@ -32,8 +32,10 @@ function App() {
   }, []);
 
   const fetchItems = useCallback(async () => {
+    if (!loginUser) return;
     try {
-      const response = await fetch(`${API_URL}/get-items`);
+      // 💡 修正点：ログイン中のユーザーのメールを添えて商品を取得する
+      const response = await fetch(`${API_URL}/get-items?user_email=${loginUser.email}`);
       if (response.ok) {
         const data = await response.json();
         setItems(data || []);
@@ -47,7 +49,7 @@ function App() {
     } catch (error) {
       console.error("データ取得エラー:", error);
     }
-  }, [fetchRecommendations]);
+  }, [loginUser, fetchRecommendations]);
 
   useEffect(() => {
     if (loginUser) {
@@ -58,7 +60,6 @@ function App() {
   // --- 認証ハンドラー（Firebaseなしの仮ログイン） ---
   const handleAuth = (e) => {
     e.preventDefault();
-    // 入力されたメールアドレスでそのままログイン状態にする
     setLoginUser({ email: email });
     alert(`🎉 ${isLoginMode ? "ログイン" : "登録"}成功: ` + email);
     setEmail("");
@@ -87,7 +88,25 @@ function App() {
     }
   };
 
-  // --- ★新しく追加：商品購入ハンドラー ---
+  // --- ★新設：いいね！ハンドラー ---
+  const handleLike = async (item) => {
+    if (!loginUser) return;
+    try {
+      const response = await fetch(`${API_URL}/like-item?item_id=${item.id}&user_email=${loginUser.email}`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        fetchItems(); // 最新のいいね数を再取得して画面を更新
+      } else {
+        alert("❌ いいね処理に失敗しました");
+      }
+    } catch (error) {
+      console.error("いいね通信エラー:", error);
+    }
+  };
+
+  // --- 商品購入ハンドラー ---
   const handleBuy = async (item) => {
     if (!window.confirm(`「${item.name}」を購入しますか？`)) return;
 
@@ -98,7 +117,7 @@ function App() {
 
       if (response.ok) {
         alert("🎉 購入が完了しました！");
-        fetchItems(); // 最新の売り切れ状態を反映
+        fetchItems();
       } else {
         alert("❌ 購入に失敗しました");
       }
@@ -313,7 +332,6 @@ function App() {
                       border: "1px solid #e2e8f0"
                     }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                        {/* 売り切れ状態なら商品名に取り消し線を引く */}
                         <span style={{ 
                           fontWeight: "600", 
                           fontSize: "1.1rem", 
@@ -333,7 +351,30 @@ function App() {
                       
                       {/* ボタン設置エリア */}
                       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                        {/* ★新設：購入ボタン（is_sold が true なら SOLD OUT バッジに変形） */}
+                        
+                        {/* ★新設：いいね！ボタン */}
+                        <button
+                          onClick={() => handleLike(item)}
+                          style={{
+                            background: "none",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "8px",
+                            padding: "6px 12px",
+                            cursor: "pointer",
+                            fontSize: "0.9rem",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            backgroundColor: item.is_liked ? "#fff1f2" : "#f8fafc",
+                            borderColor: item.is_liked ? "#fecdd3" : "#e2e8f0",
+                            color: item.is_liked ? "#e11d48" : "#64748b",
+                            transition: "all 0.2s"
+                          }}
+                        >
+                          {item.is_liked ? "❤️" : "🖤"} {item.like_count || 0}
+                        </button>
+
+                        {/* 購入ボタン */}
                         {item.is_sold ? (
                           <span style={{ 
                             background: "#f1f5f9", 

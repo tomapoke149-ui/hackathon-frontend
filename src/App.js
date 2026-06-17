@@ -148,13 +148,26 @@ function App() {
     }
   };
 
+  // 💡 エラー原因だった箇所をきれいに修正しました
   const handleLike = async (item) => {
     if (!loginUser) return;
-    setItems((prev) => prev.map((p) => p.id === item.id ? { ...p, is_liked: !p.is_liked, like_count: p.is_liked ? (p.like_count || 1) - 1 : (p.like_count || 0) + 1 } : p));
+    setItems((prev) =>
+      prev.map((p) =>
+        p.id === item.id
+          ? {
+              ...p,
+              is_liked: !p.is_liked,
+              like_count: p.is_liked ? (p.like_count || 1) - 1 : (p.like_count || 0) + 1,
+            }
+          : p
+      )
+    );
     try {
       const response = await fetch(`${API_URL}/like-item?item_id=${item.id}&user_email=${loginUser.email}`, { method: "POST" });
       if (!response.ok) fetchItems(); 
-    } catch (e) { fetchItems(); }
+    } catch (e) { 
+      fetchItems(); 
+    }
   };
 
   const handleBuy = async (item) => {
@@ -258,7 +271,6 @@ function App() {
                           ) : (
                             <button onClick={() => handleBuy(item)} style={{ background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem", fontWeight: "600" }}>購入</button>
                           )}
-                          {/* 💡 本人しか削除できない */}
                           {item.user_email === loginUser.email && (
                             <button onClick={() => handleDelete(item)} style={{ background: "#fef2f2", color: "#ef4444", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem" }}>🗑️</button>
                           )}
@@ -279,7 +291,6 @@ function App() {
                                   <div style={{ fontSize: "0.7rem", color: "#64748b", marginBottom: "2px" }}><span style={{ fontWeight: "600", color: "#2563eb" }}>👤 {c.user_email}</span> ({c.created_at})</div>
                                   <div style={{ fontSize: "0.85rem", color: "#334155" }}>{c.content}</div>
                                 </div>
-                                {/* 💡 本人 or 出品者のみ削除可能 */}
                                 {(c.user_email === loginUser.email || item.user_email === loginUser.email) && (
                                   <button onClick={() => handleDeleteComment(item.id, c.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: "700" }}>✕</button>
                                 )}
@@ -331,4 +342,4 @@ function App() {
   );
 }
 
-export default App;p;
+export default App;

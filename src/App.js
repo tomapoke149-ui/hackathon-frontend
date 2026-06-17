@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 function App() {
   const [activeTab, setActiveTab] = useState("home");
@@ -10,9 +10,9 @@ function App() {
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
-  const [description, setDescription] = useState(""); // 💡 追加：商品説明
-  const [imageUrl, setImageUrl] = useState("");       // 💡 追加：画像URL
-  const [userPoints, setUserPoints] = useState(10000); // 💡 追加：アプリ内通貨
+  const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [userPoints, setUserPoints] = useState(10000);
   
   const [items, setItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -20,9 +20,14 @@ function App() {
   const [itemComments, setItemComments] = useState({});
   const [commentInputs, setCommentInputs] = useState({});
 
+  // 💡 DM（チャット）機能用の状態管理
+  const [activeChatUser, setActiveChatUser] = useState(null); // 現在チャット中の相手のemail
+  const [dmMessages, setDmMessages] = useState([]);          // チャット履歴
+  const [dmInput, setDmInput] = useState("");                // 入力中のメッセージ
+  const chatEndRef = useRef(null);                           // スクロール最下部用
+
   const API_URL = "https://hackathon-backend-242925435490.asia-northeast1.run.app";
 
-  // 💡 追加：ユーザーのポイント（通貨）を取得する関数
   const fetchPoints = useCallback(async () => {
     if (!loginUser) return;
     try {
@@ -31,9 +36,7 @@ function App() {
         const data = await response.json();
         setUserPoints(data.points ?? 10000);
       }
-    } catch (error) {
-      console.error("ポイント取得エラー:", error);
-    }
+    } catch (error) { console.error("ポイント取得エラー:", error); }
   }, [loginUser]);
 
   const fetchNotifications = useCallback(async () => {
@@ -44,9 +47,7 @@ function App() {
         const data = await response.json();
         setNotifications(data || []);
       }
-    } catch (error) {
-      console.error("通知取得エラー:", error);
-    }
+    } catch (error) { console.error("通知取得エラー:", error); }
   }, [loginUser]);
 
   const fetchCommentsForItem = useCallback(async (itemId) => {
@@ -73,13 +74,39 @@ function App() {
     } catch (error) { console.error(error); }
   }, [loginUser, searchKeyword, fetchCommentsForItem]);
 
+  // 💡 相手とのDMメッセージを取得する関数
+  const fetchDmMessages = useCallback(async () => {
+    if (!loginUser || !activeChatUser) return;
+    try {
+      const response = await fetch(`${API_URL}/get-dms?user_email=${loginUser.email}&other_email=${activeChatUser}`);
+      if (response.ok) {
+        const data = await response.json();
+        setDmMessages(data || []);
+      }
+    } catch (error) { console.error("DM取得エラー:", error); }
+  }, [loginUser, activeChatUser]);
+
   useEffect(() => {
     if (loginUser) {
       fetchItems();
       fetchNotifications();
-      fetchPoints(); // 💡 ログイン時に通貨を読み込む
+      fetchPoints();
     }
   }, [loginUser, searchKeyword, fetchItems, fetchNotifications, fetchPoints]);
+
+  // チャット相手が切り替わった、または定期的な読み込み
+  useEffect(() => {
+    if (activeChatUser) {
+      fetchDmMessages();
+      const interval = setInterval(fetchDmMessages, 4000); // 4秒ごとに自動更新
+      return () => clearInterval(interval);
+    }
+  }, [activeChatUser, fetchDmMessages]);
+
+  // メッセージ追加時に対話画面の最下部へスクロール
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [dmMessages]);
 
   const handleAuth = (e) => {
     e.preventDefault();
@@ -93,38 +120,22 @@ function App() {
       const response = await fetch(`${API_URL}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          name: name, 
-          price: parseInt(price, 10), 
-          user_email: loginUser.email,
-          description: description, // 💡 追加：商品説明をバックエンドへ送る
-          image_url: imageUrl        // 💡 追加：画像URLをバックエンドへ送る
-        }),
+        body: JSON.stringify({ name: name, price: parseInt(price, 10), user_email: loginUser.email, description: description, image_url: imageUrl }),
       });
-      if (response.ok) { 
-        setName(""); 
-        setPrice(""); 
-        setDescription(""); // フォームをクリア
-        setImageUrl("");    // フォームをクリア
-        fetchItems(); 
-      }
+      if (response.ok) { setName(""); setPrice(""); setDescription(""); setImageUrl(""); fetchItems(); }
     } catch (error) { console.error(error); }
   };
 
   const handlePostComment = async (itemId) => {
     const text = commentInputs[itemId];
     if (!text || !text.trim()) return;
-
     try {
       const response = await fetch(`${API_URL}/post-comment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ item_id: itemId, user_email: loginUser.email, content: text })
       });
-      if (response.ok) {
-        setCommentInputs((prev) => ({ ...prev, [itemId]: "" }));
-        fetchCommentsForItem(itemId);
-      }
+      if (response.ok) { setCommentInputs((prev) => ({ ...prev, [itemId]: "" })); fetchCommentsForItem(itemId); }
     } catch (error) { console.error(error); }
   };
 
@@ -153,14 +164,7 @@ function App() {
     if (!window.confirm(`「${item.name}」を ${item.price.toLocaleString()} pt で購入しますか？`)) return;
     try {
       const response = await fetch(`${API_URL}/buy-item?id=${item.id}&user_email=${loginUser.email}`, { method: "POST" });
-      if (response.ok) { 
-        alert("🎉 アプリ内通貨での購入が完了しました！"); 
-        fetchItems(); 
-        fetchPoints(); // 💡 残高ポイントを更新
-      } else {
-        const errData = await response.json();
-        alert(`エラー: ${errData.detail || "購入に失敗しました"}`);
-      }
+      if (response.ok) { alert("🎉 購入が完了しました！"); fetchItems(); fetchPoints(); }
     } catch (e) { console.error(e); }
   };
 
@@ -172,6 +176,23 @@ function App() {
     } catch (e) { console.error(e); }
   };
 
+  // 💡 DM送信処理
+  const handleSendDm = async (e) => {
+    e.preventDefault();
+    if (!dmInput.trim() || !activeChatUser) return;
+    try {
+      const response = await fetch(`${API_URL}/send-dm?sender_email=${loginUser.email}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ receiver_email: activeChatUser, message: dmInput })
+      });
+      if (response.ok) {
+        setDmInput("");
+        fetchDmMessages();
+      }
+    } catch (error) { console.error("DM送信エラー:", error); }
+  };
+
   const handleTabChange = async (tab) => {
     setActiveTab(tab);
     if (tab === "notifications") {
@@ -181,9 +202,7 @@ function App() {
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       }
     }
-    if (tab === "profile" || tab === "home") {
-      fetchPoints(); // タブ切り替え時にポイントを同期
-    }
+    if (tab === "profile" || tab === "home") { fetchPoints(); }
   };
 
   const handleNotificationClick = (itemId) => {
@@ -225,7 +244,6 @@ function App() {
           </div>
         ) : (
           <div>
-            {/* 💡 追加：アプリ内通貨（ウォレット）ヘッダー表示 */}
             <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", color: "#ffffff", padding: "15px 20px", borderRadius: "14px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)" }}>
               <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>💰 アプリ内通貨アカウント</div>
               <div style={{ fontSize: "1.4rem", fontWeight: "800" }}>{userPoints.toLocaleString()} <span style={{ fontSize: "1rem", fontWeight: "normal" }}>pt</span></div>
@@ -245,7 +263,6 @@ function App() {
                   <span>🔍</span><input type="text" placeholder="商品を検索" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} style={{ width: "100%", border: "none", outline: "none" }}/>
                 </div>
 
-                {/* 💡 拡張：出品フォーム（商品説明・写真URLを追加） */}
                 <div style={{ background: "#ffffff", padding: "25px", borderRadius: "16px", marginBottom: "25px", border: "1px solid #e2e8f0" }}>
                   <h4 style={{ margin: "0 0 15px 0", color: "#475569" }}>📦 商品を出品する</h4>
                   <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -253,47 +270,32 @@ function App() {
                       <input type="text" placeholder="商品名" value={name} onChange={(e) => setName(e.target.value)} required style={{ flex: 2, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
                       <input type="number" placeholder="価格 (pt)" value={price} onChange={(e) => setPrice(e.target.value)} required style={{ flex: 1, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
                     </div>
-                    <textarea placeholder="商品の詳細な説明（状態や特徴など）" value={description} onChange={(e) => setDescription(e.target.value)} rows="2" style={{ padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px", resize: "none", fontFamily: "inherit" }}/>
-                    <input type="url" placeholder="画像URL (空欄なら自動でダミー画像が適用されます)" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} style={{ padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
-                    <button type="submit" style={{ padding: "12px", background: "#059669", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700", marginTop: "4px" }}>商品をフリマに出品する</button>
+                    <textarea placeholder="商品の詳細な説明" value={description} onChange={(e) => setDescription(e.target.value)} rows="2" style={{ padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px", resize: "none", fontFamily: "inherit" }}/>
+                    <input type="url" placeholder="画像URL (空欄なら自動割り当て)" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} style={{ padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px" }}/>
+                    <button type="submit" style={{ padding: "12px", background: "#059669", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "700" }}>商品をフリマに出品する</button>
                   </form>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
                   {items.map((item) => (
                     <div id={`item-card-${item.id}`} key={item.id} style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
-                      {/* 💡 追加：商品の写真表示（URLがあればそれを表示、なければユニークな街並み・雑貨のプレースホルダー画像を自動生成） */}
                       <div style={{ width: "100%", height: "200px", backgroundColor: "#f1f5f9", borderRadius: "12px", marginBottom: "15px", overflow: "hidden", border: "1px solid #e2e8f0", display: "flex", justifyContent: "center", alignItems: "center", position: "relative" }}>
-                        <img 
-                          src={item.image_url && item.image_url.trim() !== "" ? item.image_url : `https://picsum.photos/id/${(item.id % 50) + 10}/600/400`} 
-                          alt={item.name} 
-                          style={{ width: "100%", height: "100%", objectFit: "cover", filter: item.is_sold ? "grayscale(40%)" : "none" }}
-                          onError={(e) => { e.target.src = "https://picsum.photos/600/400?blur=2"; }}
-                        />
+                        <img src={item.image_url && item.image_url.trim() !== "" ? item.image_url : `https://picsum.photos/id/${(item.id % 50) + 10}/600/400`} alt={item.name} style={{ width: "100%", height: "100%", objectFit: "cover", filter: item.is_sold ? "grayscale(40%)" : "none" }} onError={(e) => { e.target.src = "https://picsum.photos/600/400?blur=2"; }}/>
                         {item.is_sold && (
                           <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.4)", display: "flex", justifyContent: "center", alignItems: "center" }}>
-                            <span style={{ color: "white", fontSize: "1.8rem", fontWeight: "900", letterSpacing: "2px", border: "3px solid white", padding: "6px 20px", transform: "rotate(-10deg)" }}>SOLD OUT</span>
+                            <span style={{ color: "white", fontSize: "1.8rem", fontWeight: "900", border: "3px solid white", padding: "6px 20px", transform: "rotate(-10deg)" }}>SOLD OUT</span>
                           </div>
                         )}
                       </div>
 
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
                         <div style={{ flex: 1, paddingRight: "10px" }}>
-                          <div style={{ fontWeight: "700", fontSize: "1.2rem", textDecoration: item.is_sold ? "line-through" : "none", color: "#0f172a" }}>
-                            <span style={{ fontSize: "0.85rem", color: "#94a3b8", marginRight: "6px" }}>[ID: {item.id}]</span>
-                            {item.name}
-                          </div>
+                          <div style={{ fontWeight: "700", fontSize: "1.2rem", textDecoration: item.is_sold ? "line-through" : "none" }}>{item.name}</div>
                           <div style={{ color: item.is_sold ? "#94a3b8" : "#2563eb", fontWeight: "800", fontSize: "1.2rem", marginTop: "2px" }}>{item.price.toLocaleString()} pt</div>
-                          
-                          {/* 💡 追加：商品の説明テキスト表示 */}
-                          {item.description && (
-                            <p style={{ fontSize: "0.9rem", color: "#475569", margin: "8px 0 0 0", backgroundColor: "#f8fafc", padding: "8px 12px", borderRadius: "8px", borderLeft: "3px solid #cbd5e1", lineHeight: "1.4" }}>
-                              {item.description}
-                            </p>
-                          )}
+                          {item.description && <p style={{ fontSize: "0.9rem", color: "#475569", margin: "8px 0 0 0", backgroundColor: "#f8fafc", padding: "8px 12px", borderRadius: "8px", borderLeft: "3px solid #cbd5e1" }}>{item.description}</p>}
                         </div>
 
-                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end", minWidth: "100px" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end", minWidth: "110px" }}>
                           <button onClick={() => handleLike(item)} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", backgroundColor: item.is_liked ? "#fff1f2" : "#f8fafc", width: "100%" }}>
                             {item.is_liked ? "❤️" : "🖤"} {item.like_count || 0}
                           </button>
@@ -303,7 +305,11 @@ function App() {
                           ) : item.user_email === loginUser.email ? (
                             <span style={{ background: "#f8fafc", color: "#94a3b8", border: "1px dashed #cbd5e1", padding: "6px 12px", borderRadius: "6px", fontSize: "0.8rem", fontWeight: "700", textAlign: "center", width: "100%", boxSizing: "border-box" }}>マイ出品</span>
                           ) : (
-                            <button onClick={() => handleBuy(item)} style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "700", width: "100%" }}>購入する</button>
+                            <>
+                              <button onClick={() => handleBuy(item)} style={{ background: "#2563eb", color: "white", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "700", width: "100%" }}>購入する</button>
+                              {/* 💡 追加：出品者とDMするボタン */}
+                              <button onClick={() => setActiveChatUser(item.user_email)} style={{ background: "#fff", color: "#4f46e5", border: "1px solid #4f46e5", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem", fontWeight: "600", width: "100%" }}>💬 出品者とDM</button>
+                            </>
                           )}
                           
                           {item.user_email === loginUser.email && (
@@ -312,13 +318,14 @@ function App() {
                         </div>
                       </div>
 
+                      {/* コメントセクション */}
                       <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: "12px", marginTop: "12px", backgroundColor: "#f8fafc", padding: "10px", borderRadius: "8px" }}>
                         <div style={{ fontSize: "0.85rem", fontWeight: "700", color: "#475569", marginBottom: "8px" }}>💬 コメント</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px", maxHeight: "150px", overflowY: "auto" }}>
                           {(itemComments[item.id] || []).map((c) => (
                             <div key={c.id} style={{ backgroundColor: "#ffffff", padding: "8px", borderRadius: "6px", border: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between" }}>
                               <div>
-                                <div style={{ fontSize: "0.7rem", color: "#64748b" }}>👤 {c.user_email} ({c.created_at})</div>
+                                <div style={{ fontSize: "0.7rem", color: "#64748b" }}>👤 {c.user_email}</div>
                                 <div style={{ fontSize: "0.85rem" }}>{c.content}</div>
                               </div>
                               {(c.user_email === loginUser.email || item.user_email === loginUser.email) && (
@@ -332,6 +339,7 @@ function App() {
                           <button onClick={() => handlePostComment(item.id)} style={{ padding: "6px 12px", background: "#475569", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>送信</button>
                         </div>
                       </div>
+
                     </div>
                   ))}
                 </div>
@@ -343,13 +351,8 @@ function App() {
                 <h3 style={{ margin: "0 0 20px 0", fontSize: "1.2rem" }}>🔔 お知らせ</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {notifications.map((notif) => (
-                    <div 
-                      key={notif.id} 
-                      onClick={() => handleNotificationClick(notif.item_id)}
-                      style={{ padding: "12px 15px", backgroundColor: notif.is_read ? "#f8fafc" : "#eff6ff", borderRadius: "8px", borderLeft: "4px solid #3b82f6", cursor: "pointer", transition: "background-color 0.2s" }}
-                    >
+                    <div key={notif.id} onClick={() => handleNotificationClick(notif.item_id)} style={{ padding: "12px 15px", backgroundColor: notif.is_read ? "#f8fafc" : "#eff6ff", borderRadius: "8px", borderLeft: "4px solid #3b82f6", cursor: "pointer" }}>
                       {notif.message}
-                      <div style={{ fontSize: "0.7rem", color: "#64748b", marginTop: "4px" }}>タップで商品へ移動 👉</div>
                     </div>
                   ))}
                 </div>
@@ -360,7 +363,6 @@ function App() {
               <div style={{ background: "#ffffff", padding: "30px", borderRadius: "16px", textAlign: "center" }}>
                 <h3 style={{ margin: "0 0 5px 0" }}>マイページ</h3>
                 <p style={{ color: "#64748b" }}>{loginUser.email}</p>
-                {/* 💡 追加：マイページ内でもウォレット残高を確認可能に */}
                 <div style={{ background: "#f8fafc", padding: "15px", borderRadius: "12px", margin: "20px 0", border: "1px solid #e2e8f0" }}>
                   <div style={{ color: "#64748b", fontSize: "0.85rem" }}>現在の所持ポイント</div>
                   <div style={{ fontSize: "1.6rem", fontWeight: "800", color: "#1d4ed8", marginTop: "4px" }}>{userPoints.toLocaleString()} pt</div>
@@ -371,6 +373,42 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* 💡 追加：画面下部ポップアップ形式のDM（チャット）コンポーネント */}
+      {activeChatUser && (
+        <div style={{ position: "fixed", bottom: 0, right: "20px", width: "320px", height: "400px", backgroundColor: "#ffffff", borderRadius: "12px 12px 0 0", boxShadow: "0 -4px 20px rgba(0,0,0,0.15)", border: "1px solid #cbd5e1", display: "flex", flexDirection: "column", zIndex: 1000, fontFamily: "inherit" }}>
+          {/* チャットヘッダー */}
+          <div style={{ padding: "12px", background: "#4f46e5", color: "white", borderRadius: "12px 12px 0 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "0.85rem", fontWeight: "700", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "240px" }}>📩 {activeChatUser} とのDM</div>
+            <button onClick={() => setActiveChatUser(null)} style={{ background: "none", border: "none", color: "white", fontSize: "1.2rem", cursor: "pointer", fontWeight: "bold" }}>✕</button>
+          </div>
+          
+          {/* メッセージ表示エリア */}
+          <div style={{ flex: 1, padding: "12px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px", backgroundColor: "#f8fafc" }}>
+            {dmMessages.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#94a3b8", fontSize: "0.8rem", marginTop: "40px" }}>メッセージの履歴がありません。<br/>値下げ交渉などをしてみましょう！</div>
+            ) : (
+              dmMessages.map((msg) => {
+                const isMe = msg.sender_email === loginUser.email;
+                return (
+                  <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
+                    <div style={{ maxWidth: "80%", padding: "8px 12px", borderRadius: "12px", fontSize: "0.85rem", lineHeight: "1.4", wordBreak: "break-all", backgroundColor: isMe ? "#4f46e5" : "#e2e8f0", color: isMe ? "white" : "#1e293b" }}>
+                      {msg.message}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* 送信フォーム */}
+          <form onSubmit={handleSendDm} style={{ padding: "10px", borderTop: "1px solid #e2e8f0", display: "flex", gap: "6px", backgroundColor: "#ffffff" }}>
+            <input type="text" placeholder="メッセージを入力..." value={dmInput} onChange={(e) => setDmInput(e.target.value)} style={{ flex: 1, padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "20px", fontSize: "0.85rem", outline: "none" }}/>
+            <button type="submit" style={{ padding: "8px 14px", background: "#4f46e5", color: "white", border: "none", borderRadius: "20px", fontSize: "0.85rem", fontWeight: "700", cursor: "pointer" }}>送信</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

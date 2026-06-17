@@ -3,13 +3,11 @@ import React, { useState, useEffect, useCallback } from "react";
 function App() {
   const [activeTab, setActiveTab] = useState("home");
 
-  // --- 認証用ステート ---
   const [loginUser, setLoginUser] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoginMode, setIsLoginMode] = useState(true);
 
-  // --- データ用ステート ---
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [items, setItems] = useState([]);
@@ -114,18 +112,22 @@ function App() {
     }
   };
 
+  // 💡 修正：安全なJSON形式でコメントを送信するように変更
   const handlePostComment = async (itemId) => {
     const text = commentInputs[itemId];
     if (!text || !text.trim()) return;
 
     try {
-      const response = await fetch(
-        `${API_URL}/post-comment?item_id=${itemId}&user_email=${loginUser.email}&content=${encodeURIComponent(text)}`,
-        { method: "POST" }
-      );
+      const response = await fetch(`${API_URL}/post-comment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: itemId, user_email: loginUser.email, content: text })
+      });
       if (response.ok) {
         setCommentInputs((prev) => ({ ...prev, [itemId]: "" }));
         fetchCommentsForItem(itemId);
+      } else {
+        alert("❌ コメントの送信に失敗しました");
       }
     } catch (error) {
       console.error("コメント通信エラー:", error);
@@ -148,7 +150,6 @@ function App() {
     }
   };
 
-  // 💡 エラー原因だった箇所をきれいに修正しました
   const handleLike = async (item) => {
     if (!loginUser) return;
     setItems((prev) =>
@@ -170,11 +171,17 @@ function App() {
     }
   };
 
+  // 💡 修正：購入時にもuser_emailを送信
   const handleBuy = async (item) => {
     if (!window.confirm(`「${item.name}」を購入しますか？`)) return;
     try {
-      const response = await fetch(`${API_URL}/buy-item?id=${item.id}`, { method: "POST" });
-      if (response.ok) { alert("🎉 購入が完了しました！"); fetchItems(); }
+      const response = await fetch(`${API_URL}/buy-item?id=${item.id}&user_email=${loginUser.email}`, { method: "POST" });
+      if (response.ok) { 
+        alert("🎉 購入が完了しました！"); 
+        fetchItems(); 
+      } else {
+        alert("❌ 購入に失敗しました");
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -256,8 +263,10 @@ function App() {
                       
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                         <div>
+                          {/* 💡 修正：商品IDを表示する */}
                           <div style={{ fontWeight: "700", fontSize: "1.1rem", textDecoration: item.is_sold ? "line-through" : "none", color: item.is_sold ? "#94a3b8" : "#1e293b" }}>
-                            {item.name} {item.user_email === loginUser.email && <span style={{fontSize:"0.8rem", color:"#3b82f6"}}>(あなた)</span>}
+                            <span style={{ fontSize: "0.85rem", color: "#94a3b8", marginRight: "6px" }}>[ID:{item.id}]</span>
+                            {item.name}
                           </div>
                           <div style={{ color: item.is_sold ? "#94a3b8" : "#059669", fontWeight: "800", fontSize: "1.05rem" }}>{item.price.toLocaleString()} 円</div>
                         </div>
@@ -266,11 +275,16 @@ function App() {
                           <button onClick={() => handleLike(item)} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", backgroundColor: item.is_liked ? "#fff1f2" : "#f8fafc", color: item.is_liked ? "#e11d48" : "#64748b" }}>
                             {item.is_liked ? "❤️" : "🖤"} {item.like_count || 0}
                           </button>
+                          
+                          {/* 💡 修正：自分の商品は購入できなくする */}
                           {item.is_sold ? (
                             <span style={{ background: "#f1f5f9", color: "#64748b", borderRadius: "6px", padding: "6px 12px", fontSize: "0.8rem", fontWeight: "700" }}>SOLD OUT</span>
+                          ) : item.user_email === loginUser.email ? (
+                            <span style={{ background: "#f8fafc", color: "#94a3b8", border: "1px dashed #cbd5e1", borderRadius: "6px", padding: "6px 12px", fontSize: "0.8rem", fontWeight: "700" }}>自分の商品</span>
                           ) : (
                             <button onClick={() => handleBuy(item)} style={{ background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem", fontWeight: "600" }}>購入</button>
                           )}
+
                           {item.user_email === loginUser.email && (
                             <button onClick={() => handleDelete(item)} style={{ background: "#fef2f2", color: "#ef4444", border: "none", borderRadius: "6px", padding: "6px 12px", cursor: "pointer", fontSize: "0.8rem" }}>🗑️</button>
                           )}

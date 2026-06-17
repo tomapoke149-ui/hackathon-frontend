@@ -89,23 +89,43 @@ function App() {
   };
 
   // --- ★新設：いいね！ハンドラー ---
+  
+// --- ★超快適版：いいね！ハンドラー（即時反映ロジック付き） ---
   const handleLike = async (item) => {
     if (!loginUser) return;
+
+    // 🚀 【即時反映の魔法】APIの通信を待たずに、まず手元の画面(State)のデータを書き換える！
+    setItems((prevItems) =>
+      prevItems.map((prevItem) => {
+        if (prevItem.id === item.id) {
+          return {
+            ...prevItem,
+            is_liked: !prevItem.is_liked, // ハートを反転
+            like_count: prevItem.is_liked
+              ? (prevItem.like_count || 1) - 1  // すでにいいねしてたら-1
+              : (prevItem.like_count || 0) + 1, // まだなら+1
+          };
+        }
+        return prevItem;
+      })
+    );
+
     try {
+      // バックエンドのデータベースを裏でこっそり更新に行く
       const response = await fetch(`${API_URL}/like-item?item_id=${item.id}&user_email=${loginUser.email}`, {
         method: "POST",
       });
 
-      if (response.ok) {
-        fetchItems(); // 最新のいいね数を再取得して画面を更新
-      } else {
+      if (!response.ok) {
+        // もし万が一、通信エラー等で失敗した場合は、データを正しい状態に戻す
         alert("❌ いいね処理に失敗しました");
+        fetchItems(); 
       }
     } catch (error) {
       console.error("いいね通信エラー:", error);
+      fetchItems(); // エラー時は元に戻す
     }
   };
-
   // --- 商品購入ハンドラー ---
   const handleBuy = async (item) => {
     if (!window.confirm(`「${item.name}」を購入しますか？`)) return;

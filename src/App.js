@@ -35,14 +35,21 @@ function App() {
   const fetchRecommendations = useCallback(async (latestPrice) => {
     try {
       const response = await fetch(`${API_URL}/recommend?price=${latestPrice}`);
-      if (response.ok) setRecommendations(await response.json() || []);
+      if (response.ok) {
+        const data = await response.json();
+        setRecommendations(data || []);
+      }
     } catch (error) { console.error(error); }
   }, []);
 
+  // 🚨 修正：エラーが出ていた箇所（awaitの正しい書き方に修正）
   const fetchCommentsForItem = useCallback(async (itemId) => {
     try {
       const response = await fetch(`${API_URL}/get-comments?item_id=${itemId}`);
-      if (response.ok) setItemComments((prev) => ({ ...prev, [itemId]: await response.json() || [] }));
+      if (response.ok) {
+        const data = await response.json();
+        setItemComments((prev) => ({ ...prev, [itemId]: data || [] }));
+      }
     } catch (error) { console.error(error); }
   }, []);
 
@@ -138,7 +145,6 @@ function App() {
     } catch (e) { console.error(e); }
   };
 
-  // 💡 タブ切り替え時に通知を既読にする処理
   const handleTabChange = async (tab) => {
     setActiveTab(tab);
     if (tab === "notifications") {
@@ -150,24 +156,21 @@ function App() {
     }
   };
 
-  // 💡 通知をクリックした時に商品へジャンプする処理
   const handleNotificationClick = (itemId) => {
     if (!itemId) return;
     setActiveTab("home");
-    setSearchKeyword(""); // 検索を解除して表示させる
+    setSearchKeyword("");
     setTimeout(() => {
       const element = document.getElementById(`item-card-${itemId}`);
       if (element) {
         element.scrollIntoView({ behavior: "smooth", block: "center" });
-        // 一瞬だけ色を変えて光らせる（注目させる）
         element.style.transition = "background-color 0.5s";
-        element.style.backgroundColor = "#fef08a"; // 薄い黄色
+        element.style.backgroundColor = "#fef08a";
         setTimeout(() => element.style.backgroundColor = "#ffffff", 1500);
       }
-    }, 300); // 画面が切り替わるのを少し待つ
+    }, 300);
   };
 
-  // 未読の通知の数を計算
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
@@ -219,8 +222,9 @@ function App() {
                     <div id={`item-card-${item.id}`} key={item.id} style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
                         <div>
+                          {/* 💡 IDが名前の横に表示されます！ */}
                           <div style={{ fontWeight: "700", fontSize: "1.1rem", textDecoration: item.is_sold ? "line-through" : "none" }}>
-                            <span style={{ fontSize: "0.85rem", color: "#94a3b8", marginRight: "6px" }}>[ID:{item.id}]</span>
+                            <span style={{ fontSize: "0.85rem", color: "#94a3b8", marginRight: "6px" }}>[ID: {item.id}]</span>
                             {item.name}
                           </div>
                           <div style={{ color: item.is_sold ? "#94a3b8" : "#059669", fontWeight: "800", fontSize: "1.05rem" }}>{item.price.toLocaleString()} 円</div>

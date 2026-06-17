@@ -11,7 +11,6 @@ function App() {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [items, setItems] = useState([]);
-  const [recommendations, setRecommendations] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [itemComments, setItemComments] = useState({});
@@ -32,17 +31,6 @@ function App() {
     }
   }, [loginUser]);
 
-  const fetchRecommendations = useCallback(async (latestPrice) => {
-    try {
-      const response = await fetch(`${API_URL}/recommend?price=${latestPrice}`);
-      if (response.ok) {
-        const data = await response.json();
-        setRecommendations(data || []);
-      }
-    } catch (error) { console.error(error); }
-  }, []);
-
-  // 🚨 修正：エラーが出ていた箇所（awaitの正しい書き方に修正）
   const fetchCommentsForItem = useCallback(async (itemId) => {
     try {
       const response = await fetch(`${API_URL}/get-comments?item_id=${itemId}`);
@@ -61,14 +49,11 @@ function App() {
         const data = await response.json();
         setItems(data || []);
         if (data && data.length > 0) {
-          fetchRecommendations(data[0].price);
           data.forEach((item) => fetchCommentsForItem(item.id));
-        } else {
-          setRecommendations([]);
         }
       }
     } catch (error) { console.error(error); }
-  }, [loginUser, searchKeyword, fetchRecommendations, fetchCommentsForItem]);
+  }, [loginUser, searchKeyword, fetchCommentsForItem]);
 
   useEffect(() => {
     if (loginUser) {
@@ -222,7 +207,6 @@ function App() {
                     <div id={`item-card-${item.id}`} key={item.id} style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
                         <div>
-                          {/* 💡 IDが名前の横に表示されます！ */}
                           <div style={{ fontWeight: "700", fontSize: "1.1rem", textDecoration: item.is_sold ? "line-through" : "none" }}>
                             <span style={{ fontSize: "0.85rem", color: "#94a3b8", marginRight: "6px" }}>[ID: {item.id}]</span>
                             {item.name}

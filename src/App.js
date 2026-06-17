@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 
 function App() {
-  // --- 画面切り替えタブ（"home", "notifications", "profile"） ---
   const [activeTab, setActiveTab] = useState("home");
 
   // --- 認証用ステート ---
@@ -16,11 +15,12 @@ function App() {
   const [items, setItems] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  
+  // 💡 新設：検索キーワード用ステート
+  const [searchKeyword, setSearchKeyword] = useState("");
 
-  // ⚠️ Cloud Runの本番URL
   const API_URL = "https://hackathon-backend-242925435490.asia-northeast1.run.app";
 
-  // --- 通知を取得する関数 ---
   const fetchNotifications = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/notifications`);
@@ -33,7 +33,6 @@ function App() {
     }
   }, []);
 
-  // --- レコメンドを取得する関数 ---
   const fetchRecommendations = useCallback(async (latestPrice) => {
     try {
       const response = await fetch(`${API_URL}/recommend?price=${latestPrice}`);
@@ -46,11 +45,11 @@ function App() {
     }
   }, []);
 
-  // --- 商品一覧を取得する関数 ---
+  // 💡 修正：検索キーワード（searchKeyword）も一緒にAPIに送るように拡張
   const fetchItems = useCallback(async () => {
     if (!loginUser) return;
     try {
-      const response = await fetch(`${API_URL}/get-items?user_email=${loginUser.email}`);
+      const response = await fetch(`${API_URL}/get-items?user_email=${loginUser.email}&keyword=${searchKeyword}`);
       if (response.ok) {
         const data = await response.json();
         setItems(data || []);
@@ -64,17 +63,16 @@ function App() {
     } catch (error) {
       console.error("データ取得エラー:", error);
     }
-  }, [loginUser, fetchRecommendations]);
+  }, [loginUser, searchKeyword, fetchRecommendations]); // searchKeywordを依存配列に追加
 
-  // ログイン時やタブ切り替え時にデータを同期
+  // ログイン時、タブ切り替え時、および【検索文字が変わった瞬間】にデータを再取得
   useEffect(() => {
     if (loginUser) {
       fetchItems();
       fetchNotifications();
     }
-  }, [loginUser, activeTab, fetchItems, fetchNotifications]);
+  }, [loginUser, activeTab, searchKeyword, fetchItems, fetchNotifications]);
 
-  // --- 認証ハンドラー ---
   const handleAuth = (e) => {
     e.preventDefault();
     setLoginUser({ email: email });
@@ -83,7 +81,6 @@ function App() {
     setPassword("");
   };
 
-  // --- 商品出品ハンドラー ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -105,11 +102,9 @@ function App() {
     }
   };
 
-  // --- いいね！ハンドラー（超快適・即時反映ロジック） ---
   const handleLike = async (item) => {
     if (!loginUser) return;
 
-    // 🚀 API通信を待たずに、手元の画面(State)のデータを最速で書き換える
     setItems((prevItems) =>
       prevItems.map((prevItem) => {
         if (prevItem.id === item.id) {
@@ -131,7 +126,7 @@ function App() {
       });
 
       if (response.ok) {
-        fetchNotifications(); // 通知履歴を更新
+        fetchNotifications();
       } else {
         alert("❌ いいね処理に失敗しました");
         fetchItems(); 
@@ -142,7 +137,6 @@ function App() {
     }
   };
 
-  // --- 商品購入ハンドラー ---
   const handleBuy = async (item) => {
     if (!window.confirm(`「${item.name}」を購入しますか？`)) return;
 
@@ -162,7 +156,6 @@ function App() {
     }
   };
 
-  // --- 商品削除ハンドラー ---
   const handleDelete = async (item) => {
     if (!window.confirm(`「${item.name}」を削除してもよろしいですか？`)) return;
 
@@ -249,6 +242,23 @@ function App() {
             {/* 【A. ホームタブ】 */}
             {activeTab === "home" && (
               <div>
+                {/* 🔍 新設：リアルタイム検索窓 */}
+                <div style={{ background: "#ffffff", padding: "15px 20px", borderRadius: "16px", boxShadow: "0 2px 4px rgba(0,0,0,0.02)", marginBottom: "20px", border: "1px solid #cbd5e1" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ fontSize: "1.2rem" }}>🔍</span>
+                    <input 
+                      type="text" 
+                      placeholder="キーワードで商品を検索（文字を入力すると自動で絞り込まれます）" 
+                      value={searchKeyword} 
+                      onChange={(e) => setSearchKeyword(e.target.value)} 
+                      style={{ width: "100%", padding: "8px 4px", border: "none", outline: "none", fontSize: "0.95rem" }}
+                    />
+                    {searchKeyword && (
+                      <button onClick={() => setSearchKeyword("")} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontWeight: "700" }}>✕</button>
+                    )}
+                  </div>
+                </div>
+
                 {/* 出品フォーム */}
                 <div style={{ background: "#ffffff", padding: "25px", borderRadius: "16px", boxShadow: "0 2px 4px rgba(0,0,0,0.02)", marginBottom: "25px", border: "1px solid #e2e8f0" }}>
                   <h3 style={{ margin: "0 0 15px 0", fontSize: "1.15rem", color: "#0f172a" }}>🎁 フリマに出品する</h3>
@@ -270,10 +280,12 @@ function App() {
                 )}
 
                 {/* 出品済み一覧 */}
-                <h3 style={{ margin: "0 0 15px 5px", fontSize: "1.1rem" }}>📋 タイムライン商品一覧</h3>
+                <h3 style={{ margin: "0 0 15px 5px", fontSize: "1.1rem" }}>
+                  {searchKeyword ? `🔍 「${searchKeyword}」の検索結果` : "📋 タイムライン商品一覧"} ({items.length}件)
+                </h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {items.map((item, index) => (
-                    <div key={index} style={{ background: "#ffffff", padding: "15px", borderRadius: "12px", display: "flex", alignItems: "center", justifyvalue: "space-between", border: "1px solid #e2e8f0" }}>
+                    <div key={index} style={{ background: "#ffffff", padding: "15px", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "space-between", border: "1px solid #e2e8f0" }}>
                       <div style={{ flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", marginRight: "10px" }}>
                         <div style={{ fontWeight: "600", textDecoration: item.is_sold ? "line-through" : "none", color: item.is_sold ? "#94a3b8" : "#1e293b" }}>{item.name}</div>
                         <div style={{ color: item.is_sold ? "#94a3b8" : "#059669", fontWeight: "700", fontSize: "0.95rem" }}>{item.price.toLocaleString()} 円</div>
@@ -292,6 +304,9 @@ function App() {
                       </div>
                     </div>
                   ))}
+                  {items.length === 0 && (
+                    <div style={{ textAlign: "center", color: "#64748b", padding: "20px" }}>該当する商品が見つかりませんでした。</div>
+                  )}
                 </div>
               </div>
             )}

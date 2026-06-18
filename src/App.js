@@ -34,7 +34,7 @@ function App() {
   const fetchHistory = useCallback(async () => {
     if (!loginUser) return;
     try {
-      const response = await fetch(`${API_URL}/get-history?user_email=${loginUser.email}`);
+      const response = await fetch(`${API_URL}/get-history?user_email=${encodeURIComponent(loginUser.email)}`);
       if (response.ok) {
         const data = await response.json();
         setHistoryList(data || []);
@@ -45,7 +45,7 @@ function App() {
   const fetchPoints = useCallback(async () => {
     if (!loginUser) return;
     try {
-      const response = await fetch(`${API_URL}/get-points?user_email=${loginUser.email}`);
+      const response = await fetch(`${API_URL}/get-points?user_email=${encodeURIComponent(loginUser.email)}`);
       if (response.ok) {
         const data = await response.json();
         setUserPoints(data.points ?? 10000);
@@ -56,7 +56,7 @@ function App() {
   const fetchNotifications = useCallback(async () => {
     if (!loginUser) return;
     try {
-      const response = await fetch(`${API_URL}/notifications?user_email=${loginUser.email}`);
+      const response = await fetch(`${API_URL}/notifications?user_email=${encodeURIComponent(loginUser.email)}`);
       if (response.ok) {
         const data = await response.json();
         setNotifications(data || []);
@@ -77,7 +77,7 @@ function App() {
   const fetchItems = useCallback(async () => {
     if (!loginUser) return;
     try {
-      const response = await fetch(`${API_URL}/get-items?user_email=${loginUser.email}&keyword=${searchKeyword}`);
+      const response = await fetch(`${API_URL}/get-items?user_email=${encodeURIComponent(loginUser.email)}&keyword=${encodeURIComponent(searchKeyword)}`);
       if (response.ok) {
         const data = await response.json();
         setItems(data || []);
@@ -88,22 +88,33 @@ function App() {
     } catch (error) { console.error(error); }
   }, [loginUser, searchKeyword, fetchCommentsForItem]);
 
-  // 💡 AIレコメンドを取得する関数
-  const fetchRecommendations = useCallback(async () => {
-    if (!loginUser) return;
+  // 💡 AIレコメンドを取得する関数（本物のバックエンドデータ専用・ダミー排除）
+  const fetchRecommendations = useCallback(async (targetEmail) => {
+    const emailToUse = targetEmail || (loginUser ? loginUser.email : null);
+    if (!emailToUse) return;
     try {
-      const response = await fetch(`${API_URL}/recommend?user_email=${loginUser.email}`);
+      const response = await fetch(`${API_URL}/recommend?user_email=${encodeURIComponent(emailToUse)}`);
       if (response.ok) {
         const data = await response.json();
-        setRecommendations(data || []);
+        if (Array.isArray(data)) {
+          setRecommendations(data);
+        } else {
+          setRecommendations([]);
+        }
+      } else {
+        console.error("レコメンドAPIエラー: ステータス", response.status);
+        setRecommendations([]);
       }
-    } catch (error) { console.error("レコメンド取得エラー:", error); }
+    } catch (error) { 
+      console.error("レコメンド取得通信エラー:", error); 
+      setRecommendations([]);
+    }
   }, [loginUser]);
 
   const fetchDmMessages = useCallback(async () => {
     if (!loginUser || !activeChatUser) return;
     try {
-      const response = await fetch(`${API_URL}/get-dms?user_email=${loginUser.email}&other_email=${activeChatUser}`);
+      const response = await fetch(`${API_URL}/get-dms?user_email=${encodeURIComponent(loginUser.email)}&other_email=${encodeURIComponent(activeChatUser)}`);
       if (response.ok) {
         const data = await response.json();
         setDmMessages(data || []);
@@ -116,7 +127,7 @@ function App() {
       fetchItems();
       fetchNotifications();
       fetchPoints();
-      fetchRecommendations(); // 💡 レコメンド取得
+      fetchRecommendations(); 
     }
   }, [loginUser, searchKeyword, fetchItems, fetchNotifications, fetchPoints, fetchRecommendations]);
 
@@ -145,11 +156,14 @@ function App() {
       if (response.ok) {
         setLoginUser({ email: email });
         alert(`🎉 ${isLoginMode ? "ログイン" : "登録"}に成功しました！`);
+        
+        // 💡 ログイン直後に確実におすすめデータを取得させる
+        fetchRecommendations(email);
+        
         fetchPoints();
         fetchHistory();
         fetchItems();
         fetchNotifications();
-        fetchRecommendations(); // 💡 レコメンド取得
       } else {
         alert(`⚠️ エラー: ${data.detail || "認証に失敗しました"}`);
       }
@@ -187,7 +201,7 @@ function App() {
   const handleDeleteComment = async (itemId, commentId) => {
     if (!window.confirm("このコメントを削除しますか？")) return;
     try {
-      const response = await fetch(`${API_URL}/delete-comment?comment_id=${commentId}&user_email=${loginUser.email}`, { method: "DELETE" });
+      const response = await fetch(`${API_URL}/delete-comment?comment_id=${commentId}&user_email=${encodeURIComponent(loginUser.email)}`, { method: "DELETE" });
       if (response.ok) fetchCommentsForItem(itemId);
     } catch (error) { console.error(error); }
   };
@@ -196,7 +210,7 @@ function App() {
     if (!loginUser) return;
     setItems((prev) => prev.map((p) => p.id === item.id ? { ...p, is_liked: !p.is_liked, like_count: p.is_liked ? (p.like_count || 1) - 1 : (p.like_count || 0) + 1 } : p));
     try {
-      const response = await fetch(`${API_URL}/like-item?item_id=${item.id}&user_email=${loginUser.email}`, { method: "POST" });
+      const response = await fetch(`${API_URL}/like-item?item_id=${item.id}&user_email=${encodeURIComponent(loginUser.email)}`, { method: "POST" });
       if (!response.ok) fetchItems(); 
     } catch (e) { fetchItems(); }
   };
@@ -208,15 +222,15 @@ function App() {
     }
     if (!window.confirm(`「${item.name}」を ${item.price.toLocaleString()} pt で購入しますか？`)) return;
     try {
-      const response = await fetch(`${API_URL}/buy-item?id=${item.id}&user_email=${loginUser.email}`, { method: "POST" });
-      if (response.ok) { alert("🎉 購入が完了しました！"); fetchItems(); fetchPoints(); }
+      const response = await fetch(`${API_URL}/buy-item?id=${item.id}&user_email=${encodeURIComponent(loginUser.email)}`, { method: "POST" });
+      if (response.ok) { alert("🎉 購入が完了しました！"); fetchItems(); fetchPoints(); fetchRecommendations(); }
     } catch (e) { console.error(e); }
   };
 
   const handleDelete = async (item) => {
     if (!window.confirm(`「${item.name}」を削除してもよろしいですか？`)) return;
     try {
-      const response = await fetch(`${API_URL}/delete-item?id=${item.id}&user_email=${loginUser.email}`, { method: "DELETE" });
+      const response = await fetch(`${API_URL}/delete-item?id=${item.id}&user_email=${encodeURIComponent(loginUser.email)}`, { method: "DELETE" });
       if (response.ok) fetchItems();
     } catch (e) { console.error(e); }
   };
@@ -225,7 +239,7 @@ function App() {
     e.preventDefault();
     if (!dmInput.trim() || !activeChatUser) return;
     try {
-      const response = await fetch(`${API_URL}/send-dm?sender_email=${loginUser.email}`, {
+      const response = await fetch(`${API_URL}/send-dm?sender_email=${encodeURIComponent(loginUser.email)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ receiver_email: activeChatUser, message: dmInput })
@@ -242,7 +256,7 @@ function App() {
     if (tab === "notifications") {
       const hasUnread = notifications.some(n => !n.is_read);
       if (hasUnread) {
-        fetch(`${API_URL}/notifications/read?user_email=${loginUser.email}`, { method: "POST" });
+        fetch(`${API_URL}/notifications/read?user_email=${encodeURIComponent(loginUser.email)}`, { method: "POST" });
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       }
     }
@@ -333,8 +347,8 @@ function App() {
                   </form>
                 </div>
 
-                {/* 💡 ✨ AIレコメンドセクション */}
-                {searchKeyword === "" && recommendations.length > 0 && (
+                {/* 💡 ✨ AIレコメンドセクション（リアルタイムデータ表示） */}
+                {searchKeyword.trim() === "" && recommendations.length > 0 && (
                   <div style={{ background: "linear-gradient(135deg, #fffbeb, #fef3c7)", padding: "20px", borderRadius: "16px", marginBottom: "25px", border: "1px solid #fde68a", boxShadow: "0 4px 6px rgba(253, 230, 138, 0.3)" }}>
                     <h4 style={{ margin: "0 0 15px 0", color: "#d97706", display: "flex", alignItems: "center", gap: "6px" }}>
                       <span style={{ fontSize: "1.2rem" }}>✨</span> AIが選ぶ！あなたへのおすすめ

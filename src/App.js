@@ -657,7 +657,7 @@ function App() {
                       <button onClick={() => setHistoryTab("sell")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "sell" ? "#fff" : "transparent" }}>出品履歴</button>
                     </div>
 
-                    {/* 履歴リストの一覧表示 */}
+                   {/* 履歴リストの一覧表示 */}
                     {historyList.length === 0 ? (
                       <p style={{ color: "#64748b", fontSize: "0.9rem" }}>取引履歴はまだありません</p>
                     ) : (
@@ -670,6 +670,9 @@ function App() {
                           })
                           .map((h, idx) => {
                             const isBuyer = h.buyer_email === loginUser.email;
+                            // 💡 購入者が存在するか（購入されているか）の判定
+                            const hasBuyer = h.buyer_email && h.buyer_email !== "";
+                            
                             return (
                               <div key={idx} style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0", backgroundColor: "#fff", fontSize: "0.85rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <div>
@@ -678,11 +681,48 @@ function App() {
                                   </span>
                                   <strong>{h.name}</strong>
                                   <div style={{ color: "#64748b", fontSize: "0.75rem", marginTop: "2px" }}>
-                                    価格: {h.price}pt | 相手: {isBuyer ? h.user_email?.split("@")[0] : h.buyer_email?.split("@")[0] || "未購入"}
+                                    価格: {h.price.toLocaleString()}pt | 相手: {isBuyer ? h.user_email?.split("@")[0] : (hasBuyer ? h.buyer_email?.split("@")[0] : "未購入")}
                                   </div>
                                 </div>
-                                <div style={{ fontSize: "0.8rem", fontWeight: "bold", color: h.is_completed ? "#10b981" : h.is_shipped ? "#f59e0b" : "#64748b" }}>
-                                  {h.is_completed ? "取引完了" : h.is_shipped ? "発送済み" : "出品中"}
+                                
+                                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                  {/* 💡 ステータス表示の条件分岐を正確に修正（未購入なら出品中、購入済みなら取引中） */}
+                                  <div style={{ 
+                                    fontSize: "0.8rem", 
+                                    fontWeight: "bold", 
+                                    color: h.is_completed ? "#10b981" : h.is_shipped ? "#f59e0b" : (hasBuyer ? "#64748b" : "#3b82f6") 
+                                  }}>
+                                    {h.is_completed ? "取引完了" : h.is_shipped ? "発送済み" : (hasBuyer ? "取引中" : "出品中")}
+                                  </div>
+
+                                  {/* ⭐ 追加：購入者側（自分＝buyer_email）かつ、発送済み（is_shipped）かつ、未完了（!is_completed）なら受取評価ボタンを出す */}
+                                  {isBuyer && h.is_shipped && !h.is_completed && (
+                                    <button 
+                                      onClick={() => {
+                                        // 💡 もし既存の評価用モーダルを開く関数（例: handleOpenReviewModal）があればそれに書き換えてください
+                                        // なければ、臨時のポップアップ通知等で完了APIを叩くように調整します
+                                        const rating = prompt("出品者の評価を1〜5の数字で入力してください", "5");
+                                        const comment = prompt("評価コメントを入力してください", "ありがとうございました！");
+                                        if (rating) {
+                                          fetch(`${API_URL}/complete-transaction`, {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ item_id: h.id, user_email: loginUser.email, rating: parseInt(rating, 10), comment: comment })
+                                          }).then(res => {
+                                            if (res.ok) {
+                                              alert("🎉 取引が完了しました！");
+                                              fetchHistory(); // 履歴を再読み込み
+                                            } else {
+                                              alert("評価の送信に失敗しました。");
+                                            }
+                                          });
+                                        }
+                                      }}
+                                      style={{ padding: "4px 8px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "0.75rem", fontWeight: "bold" }}
+                                    >
+                                      🌟 受取評価
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             );

@@ -81,6 +81,8 @@ function App() {
     } catch (error) { console.error("通知取得エラー:", error); }
   }, [loginUser]);
 
+
+
   const fetchCommentsForItem = useCallback(async (itemId) => {
     try {
       const response = await fetch(`${API_URL}/get-comments?item_id=${itemId}`);
@@ -189,6 +191,15 @@ function App() {
       alert("⚠️ サーバーとの通信に失敗しました。");
     }
   };
+
+  const handleLogout = () => {
+  if (window.confirm("ログアウトしますか？")) {
+    setLoginUser(null);          // 💡 ユーザー情報を空っぽにする
+    setActiveTab("home");        // 💡 念のためタブをホームに戻す
+    localStorage.removeItem("loginUser"); // もしローカルストレージを使っていれば削除
+    alert("ログアウトしました");
+  }
+};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -446,14 +457,41 @@ function App() {
               <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer" }}> 切替 </button>
             </div>
           </div>
-        ) : (
+       ) : (
           <div>
+            {/* 💡 ログインユーザー用のヘッダー：右側にログアウトボタンを綺麗に配置 */}
             <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", color: "#ffffff", padding: "15px 20px", borderRadius: "14px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)" }}>
-              <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>💰 アプリ内通貨アカウント</div>
-              <div style={{ fontSize: "1.4rem", fontWeight: "800" }}>{userPoints.toLocaleString()} <span style={{ fontSize: "1rem", fontWeight: "normal" }}>pt</span></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <div style={{ fontSize: "0.8rem", opacity: 0.8 }}>👤 {loginUser.email.split("@")[0]} さん</div>
+                <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>💰 アプリ内通貨アカウント</div>
+              </div>
+              
+              <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+                <div style={{ fontSize: "1.4rem", fontWeight: "800" }}>{userPoints.toLocaleString()} <span style={{ fontSize: "1rem", fontWeight: "normal" }}>pt</span></div>
+                
+                {/* ⭐ ログアウトボタンを追加！ */}
+                <button 
+                  onClick={handleLogout}
+                  style={{
+                    padding: "6px 12px",
+                    background: "rgba(255, 255, 255, 0.2)",
+                    color: "white",
+                    border: "1px solid rgba(255, 255, 255, 0.4)",
+                    borderRadius: "8px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    fontSize: "0.8rem",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseOver={(e) => e.target.style.background = "#ef4444"}
+                  onMouseOut={(e) => e.target.style.background = "rgba(255, 255, 255, 0.2)"}
+                >
+                  🚪 ログアウト
+                </button>
+              </div>
             </div>
 
-            {/* ナビゲーションタブ */}
+            {/* ナビゲーションタブ（途切れていたところから綺麗に継続させます） */}
             <div style={{ display: "flex", background: "#fff", borderRadius: "12px", padding: "6px", marginBottom: "25px", border: "1px solid #e2e8f0" }}>
               <button onClick={() => handleTabChange("home")} style={{ flex: 1, padding: "10px", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", backgroundColor: activeTab === "home" ? "#f1f5f9" : "transparent" }}>🏠 ホーム</button>
               <button onClick={() => handleTabChange("notifications")} style={{ flex: 1, padding: "10px", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600", backgroundColor: activeTab === "notifications" ? "#f1f5f9" : "transparent", display: "flex", justifyContent: "center", gap: "6px" }}>
@@ -586,18 +624,37 @@ function App() {
                 </div>
               </div>
             )}
-
-            {activeTab === "notifications" && (
+{activeTab === "notifications" && (
               <div style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
                 <h3 style={{ margin: "0 0 15px 0" }}>🔔 通知一覧</h3>
                 {notifications.length === 0 ? <p style={{ color: "#64748b" }}>通知はありません</p> : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {notifications.map((n) => (
-                      <div key={n.id} onClick={() => handleNotificationClick(n)} style={{ padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0", backgroundColor: n.is_read ? "#fff" : "#eff6ff", cursor: "pointer" }}>
-                        <div style={{ fontSize: "0.9rem" }}>{n.message}</div>
-                        <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "4px" }}>{n.created_at}</div>
-                      </div>
-                    ))}
+                    {notifications.map((n) => {
+                      // 💡 通知メッセージからメールアドレスっぽい部分を抽出してプロフィールに飛べるようにする
+                      const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/;
+                      const matchedEmail = n.message.match(emailRegex)?.[0];
+
+                      return (
+                        <div key={n.id} onClick={() => handleNotificationClick(n)} style={{ padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0", backgroundColor: n.is_read ? "#fff" : "#eff6ff", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <div style={{ fontSize: "0.9rem" }}>{n.message}</div>
+                            <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "4px" }}>{n.created_at}</div>
+                          </div>
+                          {/* ⭐ 追加：通知にユーザー情報が含まれる場合、プロフィールへ飛ぶボタンを設置 */}
+                          {matchedEmail && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation(); // 親の通知クリックイベント（既読処理など）を発火させない
+                                handleUserClick(matchedEmail); // 💡 もし関数名が違う場合は viewUserProfile 等に変更してください
+                              }} 
+                              style={{ padding: "4px 8px", backgroundColor: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "0.75rem", cursor: "pointer", color: "#2563eb", fontWeight: "bold" }}
+                            >
+                              プロフィール ➔
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -616,11 +673,43 @@ function App() {
 
                 <div style={{ padding: "15px", backgroundColor: "#f8fafc", borderRadius: "10px", marginBottom: "20px" }}>
                   <div><strong>メールアドレス:</strong> {viewProfile.email}</div>
+                  
+                  {/* ⭐【パワーアップ】フォロー・フォロワー欄をクリックして一覧表示できるように改良 */}
                   <div style={{ display: "flex", gap: "15px", marginTop: "10px", fontSize: "0.9rem" }}>
-                    <div><strong>フォロー:</strong> {viewProfile.following_count || 0} 人</div>
-                    <div><strong>フォロワー:</strong> {viewProfile.follower_count || 0} 人</div>
+                    <div style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }} onClick={() => setShowFollowList(showFollowList === "following" ? null : "following")}>
+                      <strong>フォロー:</strong> {viewProfile.following_count || 0} 人
+                    </div>
+                    <div style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }} onClick={() => setShowFollowList(showFollowList === "followers" ? null : "followers")}>
+                      <strong>フォロワー:</strong> {viewProfile.follower_count || 0} 人
+                    </div>
                     <div><strong>評価数:</strong> {viewProfile.reviews ? viewProfile.reviews.length : 0} 件</div>
                   </div>
+
+                  {/* ⭐ 追加：フォローまたはフォロワーのユーザー一覧を表示するアコーディオン */}
+                  {typeof showFollowList !== 'undefined' && showFollowList && (
+                    <div style={{ marginTop: "12px", padding: "10px", background: "#fff", borderRadius: "8px", border: "1px solid #cbd5e1" }}>
+                      <div style={{ fontSize: "0.8rem", fontWeight: "bold", marginBottom: "6px", color: "#475569" }}>
+                        {showFollowList === "following" ? "🏃 フォロー中の一覧" : "👥 フォロワーの一覧"}
+                      </div>
+                      {((showFollowList === "following" ? viewProfile.following : viewProfile.followers) || []).length === 0 ? (
+                        <div style={{ fontSize: "0.8rem", color: "#64748b" }}>まだユーザーはいません</div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          {((showFollowList === "following" ? viewProfile.following : viewProfile.followers) || []).map((uEmail, uIdx) => (
+                            <div key={uIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px dashed #f1f5f9" }}>
+                              <span style={{ fontSize: "0.8rem" }}>{uEmail}</span>
+                              <button 
+                                onClick={() => { handleUserClick(uEmail); setShowFollowList(null); }}
+                                style={{ padding: "2px 6px", fontSize: "0.75rem", background: "#2563eb", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                              >
+                                見る
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ marginBottom: "20px" }}>
@@ -645,7 +734,7 @@ function App() {
                   )}
                 </div>
 
-                {/* 💡 【復活＆統合】購入・販売履歴タブエリア */}
+                {/* 購入・販売履歴タブエリア */}
                 {viewProfile.email === loginUser.email && (
                   <div style={{ marginBottom: "25px", borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}>
                     <h4 style={{ margin: "0 0 12px 0" }}>📋 取引履歴</h4>
@@ -670,7 +759,6 @@ function App() {
                           })
                           .map((h, idx) => {
                             const isBuyer = h.buyer_email === loginUser.email;
-                            // 💡 購入者が存在するか（購入されているか）の判定
                             const hasBuyer = h.buyer_email && h.buyer_email !== "";
                             
                             return (
@@ -681,12 +769,19 @@ function App() {
                                   </span>
                                   <strong>{h.name}</strong>
                                   <div style={{ color: "#64748b", fontSize: "0.75rem", marginTop: "2px" }}>
-                                    価格: {h.price.toLocaleString()}pt | 相手: {isBuyer ? h.user_email?.split("@")[0] : (hasBuyer ? h.buyer_email?.split("@")[0] : "未購入")}
+                                    価格: {h.price.toLocaleString()}pt | 相手: 
+                                    {/* ⭐【動線追加】取引相手のユーザー名をクリックするとその人のプロフィールへ飛べるリンク化 */}
+                                    {isBuyer ? (
+                                      <span onClick={() => handleUserClick(h.user_email)} style={{ color: "#2563eb", cursor: "pointer", textDecoration: "underline", marginLeft: "4px" }}>{h.user_email?.split("@")[0]}</span>
+                                    ) : (
+                                      hasBuyer ? (
+                                        <span onClick={() => handleUserClick(h.buyer_email)} style={{ color: "#2563eb", cursor: "pointer", textDecoration: "underline", marginLeft: "4px" }}>{h.buyer_email?.split("@")[0]}</span>
+                                      ) : "未購入"
+                                    )}
                                   </div>
                                 </div>
                                 
                                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                  {/* 💡 ステータス表示の条件分岐を正確に修正（未購入なら出品中、購入済みなら取引中） */}
                                   <div style={{ 
                                     fontSize: "0.8rem", 
                                     fontWeight: "bold", 
@@ -695,12 +790,9 @@ function App() {
                                     {h.is_completed ? "取引完了" : h.is_shipped ? "発送済み" : (hasBuyer ? "取引中" : "出品中")}
                                   </div>
 
-                                  {/* ⭐ 追加：購入者側（自分＝buyer_email）かつ、発送済み（is_shipped）かつ、未完了（!is_completed）なら受取評価ボタンを出す */}
                                   {isBuyer && h.is_shipped && !h.is_completed && (
                                     <button 
                                       onClick={() => {
-                                        // 💡 もし既存の評価用モーダルを開く関数（例: handleOpenReviewModal）があればそれに書き換えてください
-                                        // なければ、臨時のポップアップ通知等で完了APIを叩くように調整します
                                         const rating = prompt("出品者の評価を1〜5の数字で入力してください", "5");
                                         const comment = prompt("評価コメントを入力してください", "ありがとうございました！");
                                         if (rating) {
@@ -711,7 +803,7 @@ function App() {
                                           }).then(res => {
                                             if (res.ok) {
                                               alert("🎉 取引が完了しました！");
-                                              fetchHistory(); // 履歴を再読み込み
+                                              fetchHistory();
                                             } else {
                                               alert("評価の送信に失敗しました。");
                                             }
@@ -741,7 +833,9 @@ function App() {
                         <div key={idx} style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "0.85rem" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", color: "#ffc107", fontWeight: "bold" }}>
                             <span>{"★".repeat(r.rating || 5)}</span>
-                            <span style={{ color: "#64748b" }}>{r.reviewer_email ? r.reviewer_email.split("@")[0] : "ゲスト"}</span>
+                            <span style={{ color: "#64748b", cursor: "pointer", textDecoration: "underline" }} onClick={() => handleUserClick(r.reviewer_email)}>
+                              {r.reviewer_email ? r.reviewer_email.split("@")[0] : "ゲスト"}
+                            </span>
                           </div>
                           {r.comment && <div style={{ marginTop: "4px", color: "#334155" }}>{r.comment}</div>}
                         </div>
@@ -762,7 +856,7 @@ function App() {
         <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
           <div style={{ width: "90%", maxWidth: "450px", height: "80vh", backgroundColor: "white", borderRadius: "16px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ padding: "15px", background: "#2563eb", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontWeight: "bold", fontSize: "0.95rem" }}>✉️ DM: {activeChatUser.split("@")[0]}</div>
+              <div style={{ fontWeight: "bold", fontSize: "0.95rem" }} onClick={() => { handleUserClick(activeChatUser); setActiveChatUser(null); }}>✉️ DM: <span style={{ textDecoration: "underline", cursor: "pointer" }}>{activeChatUser.split("@")[0]}</span></div>
               <button onClick={() => setActiveChatUser(null)} style={{ background: "none", border: "none", color: "white", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
             </div>
             <div style={{ flex: 1, padding: "15px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px", backgroundColor: "#f8fafc" }}>

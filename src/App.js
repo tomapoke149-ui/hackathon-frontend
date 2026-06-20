@@ -302,10 +302,25 @@ function App() {
   const handleUserClick = async (email) => {
     if (!loginUser) return;
     try {
+      // 1. 通常のプロフィール情報を取得
       const response = await fetch(`${API_URL}/user-profile?target_email=${encodeURIComponent(email)}&current_user_email=${encodeURIComponent(loginUser.email)}`);
       if (response.ok) {
         const data = await response.json();
-        setViewProfile(data);
+        
+        // 2. ⭐【新設】フォロー・フォロワーの『具体的なユーザーリスト（配列）』をバックエンドから取得
+        const followStatsRes = await fetch(`${API_URL}/get-follow-stats?user_email=${encodeURIComponent(email)}&login_user_email=${encodeURIComponent(loginUser.email)}`);
+        let followListData = { following: [], followers: [] };
+        if (followStatsRes.ok) {
+          followListData = await followStatsRes.json();
+        }
+
+        // 3. ⭐ 2つのデータを合体（ガッチャンコ）させてセット！これで「まだユーザーはいません」が消えます！
+        setViewProfile({
+          ...data,
+          following: followListData.following,
+          followers: followListData.followers
+        });
+
         if (email === loginUser.email) {
           setBioInput(data.bio || ""); 
           setActiveTab("myProfile");  
@@ -326,10 +341,19 @@ function App() {
         body: JSON.stringify({ follower_email: loginUser.email, followee_email: viewProfile.email })
       });
       if (response.ok) {
+        // ⭐ フォロー切り替えが成功したら、最新の一覧リスト（配列）もその場で再取得して画面をピカピカにする
+        const followStatsRes = await fetch(`${API_URL}/get-follow-stats?user_email=${encodeURIComponent(viewProfile.email)}&login_user_email=${encodeURIComponent(loginUser.email)}`);
+        let followListData = { following: [], followers: [] };
+        if (followStatsRes.ok) {
+          followListData = await followStatsRes.json();
+        }
+
         setViewProfile(prev => ({
           ...prev,
           is_following: !prev.is_following,
-          follower_count: prev.is_following ? prev.follower_count - 1 : prev.follower_count + 1
+          follower_count: prev.is_following ? prev.follower_count - 1 : prev.follower_count + 1,
+          following: followListData.following, // 最新のリストに更新
+          followers: followListData.followers  // 最新のリストに更新
         }));
       }
     } catch (e) { console.error("フォローエラー", e); }
@@ -389,7 +413,6 @@ function App() {
       }
     }, 300);
   };
-
   // --- 取引フロー処理関数 ---
 
   const handleShipItem = async (item) => {

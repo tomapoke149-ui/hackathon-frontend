@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 function App() {
   // --- 認証用ステート ---
+
   const [loginUser, setLoginUser] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +27,7 @@ function App() {
   const [historyList, setHistoryList] = useState([]); // 💡 警告対象だった変数を下部でしっかり使用します
   const [historyTab, setHistoryTab] = useState("all");
   const [activeTab, setActiveTab] = useState("home");
+  const [showFollowList, setShowFollowList] = useState(null);
 
   // --- プロフィール用ステート ---
   const [viewProfile, setViewProfile] = useState(null); 

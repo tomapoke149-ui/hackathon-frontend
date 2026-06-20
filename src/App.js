@@ -1,6 +1,36 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { initializeApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 
+const gcpAuthConfig = {
+  apiKey: "AIzaSyAgsR16ikaPuA-DAfqjsv63zxVqPHuUzsk",
+  authDomain: "term9-shota-hirano.firebaseapp.com",
+  projectId: "term9-shota-hirano"
+};
+
+// 初期化
+const app = initializeApp(gcpAuthConfig);
+const auth = getAuth(app);
 function App() {
+  // 🧪 GCPメール認証テスト用の関数
+  const handleGcpEmailTest = async () => {
+    // 👇 ここをご自身の本物のメールアドレスに書き換えてください！
+    const testEmail = "hirarinuts1@gmail.com"; 
+    const testPassword = "password123"; // テスト用の仮パスワード（6文字以上）
+
+    try {
+      // ① GCP（Identity Platform）上にユーザーを仮作成
+      const userCredential = await createUserWithEmailAndPassword(auth, testEmail, testPassword);
+      
+      // ② 作成したユーザーに向けて、GCPから本物の認証メールを自動送信！
+      await sendEmailVerification(userCredential.user);
+      
+      alert("📢 GCPから本物の認証メールを送信しました！メールボックスを確認してください！");
+    } catch (error) {
+      console.error("GCP Auth テラー:", error.message);
+      alert("エラーが発生しました: " + error.message);
+    }
+  };
   // --- 認証用ステート ---
 
   const [loginUser, setLoginUser] = useState(null);
@@ -481,6 +511,18 @@ function App() {
             <div style={{ textAlign: "center", marginTop: "20px" }}>
               <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer" }}> 切替 </button>
             </div>
+
+            {/* 🧪 テストボタンを綺麗に囲み直しました */}
+            <div style={{ marginTop: "20px", paddingTop: "20px", borderTop: "1px dashed #e2e8f0", textAlign: "center" }}>
+              <button 
+                type="button" 
+                onClick={handleGcpEmailTest} 
+                style={{ width: "100%", padding: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "10px", fontWeight: "600", cursor: "pointer", fontSize: "0.9rem" }}
+              >
+                GCPメール認証テスト送信
+              </button>
+            </div>
+
           </div>
        ) : (
           <div>

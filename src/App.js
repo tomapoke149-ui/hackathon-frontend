@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+// 〇 修正後（signInWithEmailAndPassword を追加！）
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  sendEmailVerification, 
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail // 💡 これを追加！
+} from "firebase/auth";
 
 const gcpAuthConfig = {
   apiKey: "AIzaSyAgsR16ikaPuA-DAfqjsv63zxVqPHuUzsk",
@@ -12,23 +19,40 @@ const gcpAuthConfig = {
 const app = initializeApp(gcpAuthConfig);
 const auth = getAuth(app);
 function App() {
-  // 🧪 GCPメール認証テスト用の関数
-  const handleGcpEmailTest = async () => {
-    // 👇 ここをご自身の本物のメールアドレスに書き換えてください！
-    const testEmail = "hirarinuts1@gmail.com"; 
-    const testPassword = "password123"; // テスト用の仮パスワード（6文字以上）
+ // 🚀 一般ユーザー用の新規登録＆メール認証関数
+  // 🚀 一般ユーザー用の新規登録＆メール認証関数
+  // 🚀 一般ユーザー用の新規登録＆メール認証関数（勝手にログインさせない修正版）
+  const handleSignUp = async (e) => {
+    if (e) e.preventDefault(); // フォームのリロードを防ぐ
+    
+    if (!email || !password) {
+      alert("メールアドレスとパスワードを入力してください");
+      return;
+    }
 
     try {
-      // ① GCP（Identity Platform）上にユーザーを仮作成
-      const userCredential = await createUserWithEmailAndPassword(auth, testEmail, testPassword);
+      // ① GCP（Identity Platform）上にユーザーを作成
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // ② 作成したユーザーに向けて、GCPから本物の認証メールを自動送信！
+      // ② 作成したユーザーに向けて、GCPから認証メールを自動送信！
       await sendEmailVerification(userCredential.user);
       
-      alert("📢 GCPから本物の認証メールを送信しました！メールボックスを確認してください！");
+      // ⚠️ 【重要】ここでは setLoginUser や バックエンドへの fetch は絶対にしない！
+      
+      alert("📢 新規登録の仮受付をしました！届いたメールの認証リンクをクリックしたあと、ログイン画面からログインしてください。");
+      
+      // 登録が終わったら自動で「ログインモード」に画面を切り替えてあげる
+      setIsLoginMode(true); 
+      
     } catch (error) {
-      console.error("GCP Auth テラー:", error.message);
-      alert("エラーが発生しました: " + error.message);
+      console.error("GCP Auth エラー:", error.message);
+      if (error.code === "auth/email-already-in-use") {
+        alert("このメールアドレスは既に登録されています。ログインを試してください。");
+      } else if (error.code === "auth/weak-password") {
+        alert("パスワードは6文字以上で入力してください。");
+      } else {
+        alert("エラーが発生しました: " + error.message);
+      }
     }
   };
   // --- 認証用ステート ---
@@ -80,16 +104,18 @@ function App() {
   // --- APIデータ取得系関数 ---
 
   const fetchHistory = useCallback(async () => {
-  if (!loginUser) return;
-  try {
-    // 💡 新しく作った商品の取引履歴用APIを叩くように修正
-    const response = await fetch(`${API_URL}/get-trade-history?user_email=${encodeURIComponent(loginUser.email)}`);
-    if (response.ok) {
-      const data = await response.json();
-      setHistoryList(data || []);
-    }
-  } catch (error) { console.error("履歴取得エラー:", error); }
-}, [loginUser]);
+    // 💡 ログインユーザーではなく、現在表示しているプロフィールのメールアドレスを最優先で使う
+    const emailToUse = viewProfile?.email || loginUser?.email;
+    if (!emailToUse) return;
+    try {
+      // 💡 引数を emailToUse に変更しました
+      const response = await fetch(`${API_URL}/get-trade-history?user_email=${encodeURIComponent(emailToUse)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setHistoryList(data || []);
+      }
+    } catch (error) { console.error("履歴取得エラー:", error); }
+  }, [loginUser, viewProfile?.email]); // 💡 viewProfile?.email も監視対象に追加
 
   const fetchPoints = useCallback(async () => {
     if (!loginUser) return;
@@ -174,14 +200,27 @@ function App() {
 
   // --- 副作用 (useEffect) ---
 
+
+
+ // --- 副作用 (useEffect) ---
+
   useEffect(() => {
     if (loginUser) {
       fetchItems();
       fetchNotifications();
       fetchPoints();
       fetchRecommendations();
+      fetchHistory(); // 💡 ログイン時に自分の履歴を呼ぶ
     }
-  }, [loginUser, searchKeyword, fetchItems, fetchNotifications, fetchPoints, fetchRecommendations]);
+  }, [loginUser, searchKeyword, fetchItems, fetchNotifications, fetchPoints, fetchRecommendations, fetchHistory]);
+
+  // 💡 【修正】入れ子になっていたのを外に出して独立させました！
+  // プロフィール（見ている相手）が切り替わった瞬間に、取引履歴を自動で読み直す
+  useEffect(() => {
+    if (viewProfile?.email) {
+      fetchHistory();
+    }
+  }, [viewProfile?.email, fetchHistory]);
 
   useEffect(() => {
     if (activeChatUser) {
@@ -194,36 +233,64 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [dmMessages]);
-
   // --- アクションハンドラー関数 ---
+  
+  // 🚀 パスワード再設定メールの送信関数
+  const handleForgotPassword = async () => {
+    if (!email) {
+      alert("上のメールアドレス入力欄に、登録したアドレスを入力してからボタンを押してください。");
+      return;
+    }
 
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    const endpoint = isLoginMode ? "/login" : "/register";
     try {
-      const response = await fetch(`${API_URL}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email, password: password }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setLoginUser({ email: email });
-        alert(`🎉 ${isLoginMode ? "ログイン" : "登録"} に成功しました！`);
-        fetchRecommendations(email);
-        fetchPoints();
-        fetchHistory();
-        fetchItems();
-        fetchNotifications();
-      } else {
-        alert(`⚠️ エラー: ${data.detail || "認証に失敗しました"}`);
-      }
+      await sendPasswordResetEmail(auth, email);
+      alert(`📢 ${email} 宛にパスワード再設定用のリンクを送信しました！メールボックス（迷惑メールフォルダも含む）を確認してください。`);
     } catch (error) {
-      console.error("認証エラー:", error);
-      alert("⚠️ サーバーとの通信に失敗しました。");
+      console.error("パスワード再設定エラー:", error.message);
+      if (error.code === "auth/user-not-found") {
+        alert("このメールアドレスは登録されていません。");
+      } else if (error.code === "auth/invalid-email") {
+        alert("正しいメールアドレスの形式で入力してください。");
+      } else {
+        alert("エラーが発生しました: " + error.message);
+      }
     }
   };
+  const handleAuth = async (e) => {
+    if (e) e.preventDefault();
+    
+    try {
+      // 1. まずGCP（Firebase）でサインインして、ユーザー情報を取得する
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
 
+      // 🔥 【超重要】メール認証が完了している（リンクがクリックされた）かチェック！
+      if (!user.emailVerified) {
+        alert("⚠️ まだメール認証が完了していません！メールボックス（迷惑メールフォルダも含む）に届いているリンクをクリックしてください。");
+        return; // 認証されていなければ、ここで処理を終了して絶対にログインさせない！
+      }
+
+      // 2. 認証が完了していれば、初めてバックエンド（MySQL）へログイン（同期）リクエストを送る
+      const response = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password })
+      });
+
+      if (response.ok) {
+        // 3. バックエンドもOKなら、ここで初めてログイン状態にする
+        setLoginUser({ email: user.email });
+        alert("✨ ログインに成功しました！");
+      } else {
+        const errorData = await response.json();
+        alert(`バックエンドエラー: ${errorData.detail}`);
+      }
+
+    } catch (error) {
+      console.error("ログインエラー:", error.message);
+      alert("ログインに失敗しました。パスワードかアドレスが違います。");
+    }
+  };
   const handleLogout = () => {
   if (window.confirm("ログアウトしますか？")) {
     setLoginUser(null);          // 💡 ユーザー情報を空っぽにする
@@ -426,6 +493,10 @@ function App() {
       const match = notif.message.match(emailRegex);
       if (match && match[0]) {
         setActiveChatUser(match[0]);
+        // 💡 追加：DMを開くと同時に、もともとあるメッセージ取得関数を呼び出す（関数名が fetchDmMessages などの場合）
+        if (typeof fetchDmMessages === "function") {
+          fetchDmMessages(match[0]);
+        }
         return;
       }
     }
@@ -502,61 +573,59 @@ function App() {
 
         {!loginUser ? (
           <div style={{ background: "#ffffff", padding: "40px 30px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
-            <h3 style={{ margin: "0 0 24px 0", fontSize: "1.4rem", color: "#0f172a", textAlign: "center" }}>{isLoginMode ? "🔑 ログイン" : "📝 新規登録"}</h3>
-            <form onSubmit={handleAuth}>
+            <h3 style={{ margin: "0 0 24px 0", fontSize: "1.4rem", color: "#0f172a", textAlign: "center" }}>
+              {isLoginMode ? "🔑 ログイン" : "📝 新規登録"}
+            </h3>
+            
+            <form onSubmit={isLoginMode ? handleAuth : handleSignUp}>
               <input type="email" placeholder="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: "100%", padding: "12px", marginBottom: "18px", borderRadius: "10px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}/>
               <input type="password" placeholder="パスワード" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ width: "100%", padding: "12px", marginBottom: "24px", borderRadius: "10px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}/>
-              <button type="submit" style={{ width: "100%", padding: "14px", background: "#2563eb", color: "white", border: "none", borderRadius: "10px", fontWeight: "600", cursor: "pointer" }}>{isLoginMode ? "ログイン" : "登録"}</button>
+              <button type="submit" style={{ width: "100%", padding: "14px", background: "#2563eb", color: "white", border: "none", borderRadius: "10px", fontWeight: "600", cursor: "pointer" }}>
+                {isLoginMode ? "ログイン" : "登録"}
+              </button>
             </form>
-            <div style={{ textAlign: "center", marginTop: "20px" }}>
-              <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer" }}> 切替 </button>
-            </div>
+            
+            <div style={{ textAlign: "center", marginTop: "20px", display: "flex", flexDirection: "column", gap: "12px", alignItems: "center" }}>
+              <button type="button" onClick={() => setIsLoginMode(!isLoginMode)} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "0.95rem", fontWeight: "500" }}> 
+                {isLoginMode ? "👉 新規登録はこちら" : "👉 ログインはこちら"}
+              </button>
 
-            {/* 🧪 テストボタンを綺麗に囲み直しました */}
-            <div style={{ marginTop: "20px", paddingTop: "20px", borderTop: "1px dashed #e2e8f0", textAlign: "center" }}>
+              {/* 💡 ログインモードの時だけ「パスワードを忘れた方」ボタンを表示 */}
+              {isLoginMode && (
+                <button type="button" onClick={handleForgotPassword} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "0.85rem", textDecoration: "underline" }}>
+                  🔑 パスワードを忘れた方はこちら
+                </button>
+              )}
+            </div>
+          </div>
+      ) : (
+        <div>
+          {/* 💡 ログインユーザー用のヘッダー */}
+          <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", color: "#ffffff", padding: "15px 20px", borderRadius: "14px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <div style={{ fontSize: "0.8rem", opacity: 0.8 }}>👤 {loginUser.email ? loginUser.email.split("@")[0] : "ユーザー"} さん</div>
+              <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>💰 アプリ内通貨アカウント</div>
+            </div>
+            
+            <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+              <div style={{ fontSize: "1.4rem", fontWeight: "800" }}>{userPoints.toLocaleString()} <span style={{ fontSize: "1rem", fontWeight: "normal" }}>pt</span></div>
+              
               <button 
-                type="button" 
-                onClick={handleGcpEmailTest} 
-                style={{ width: "100%", padding: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "10px", fontWeight: "600", cursor: "pointer", fontSize: "0.9rem" }}
+                onClick={handleLogout}
+                style={{
+                  padding: "6px 12px",
+                  background: "rgba(255, 255, 255, 0.2)",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer"
+                }}
               >
-                GCPメール認証テスト送信
+                ログアウト
               </button>
             </div>
-
           </div>
-       ) : (
-          <div>
-            {/* 💡 ログインユーザー用のヘッダー：右側にログアウトボタンを綺麗に配置 */}
-            <div style={{ background: "linear-gradient(135deg, #3b82f6, #1d4ed8)", color: "#ffffff", padding: "15px 20px", borderRadius: "14px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 4px 12px rgba(37, 99, 235, 0.2)" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <div style={{ fontSize: "0.8rem", opacity: 0.8 }}>👤 {loginUser.email.split("@")[0]} さん</div>
-                <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>💰 アプリ内通貨アカウント</div>
-              </div>
-              
-              <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-                <div style={{ fontSize: "1.4rem", fontWeight: "800" }}>{userPoints.toLocaleString()} <span style={{ fontSize: "1rem", fontWeight: "normal" }}>pt</span></div>
-                
-                {/* ⭐ ログアウトボタンを追加！ */}
-                <button 
-                  onClick={handleLogout}
-                  style={{
-                    padding: "6px 12px",
-                    background: "rgba(255, 255, 255, 0.2)",
-                    color: "white",
-                    border: "1px solid rgba(255, 255, 255, 0.4)",
-                    borderRadius: "8px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    fontSize: "0.8rem",
-                    transition: "all 0.2s"
-                  }}
-                  onMouseOver={(e) => e.target.style.background = "#ef4444"}
-                  onMouseOut={(e) => e.target.style.background = "rgba(255, 255, 255, 0.2)"}
-                >
-                  🚪 ログアウト
-                </button>
-              </div>
-            </div>
+        
 
             {/* ナビゲーションタブ（途切れていたところから綺麗に継続させます） */}
             <div style={{ display: "flex", background: "#fff", borderRadius: "12px", padding: "6px", marginBottom: "25px", border: "1px solid #e2e8f0" }}>
@@ -730,26 +799,42 @@ function App() {
             {(activeTab === "myProfile" || activeTab === "otherProfile") && viewProfile && (
               <div style={{ background: "#ffffff", padding: "25px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                  <h3 style={{ margin: 0 }}>👤 {viewProfile.email === loginUser.email ? "マイプロフィール" : "ユーザープロフィール"}</h3>
-                  {viewProfile.email !== loginUser.email && (
-                    <button onClick={handleToggleFollow} style={{ padding: "8px 16px", background: viewProfile.is_following ? "#cbd5e1" : "#2563eb", color: viewProfile.is_following ? "#333" : "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}>
-                      {viewProfile.is_following ? "フォロー中 ✓" : "➕ フォローする"}
-                    </button>
+                  <h3 style={{ margin: 0 }}>👤 {viewProfile?.email === loginUser?.email ? "マイプロフィール" : "ユーザープロフィール"}</h3>
+                  
+                  {/* 💡 相手のプロフィールの時だけ「フォローボタン」と「DMボタン」を並べて表示 */}
+                  {viewProfile?.email !== loginUser?.email && (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        onClick={() => {
+                          setActiveChatUser?.(viewProfile?.email);
+                          if (typeof fetchDmMessages === "function") {
+                            fetchDmMessages(viewProfile?.email);
+                          }
+                        }}
+                        style={{ padding: "8px 16px", background: "#10b981", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "0.85rem" }}
+                      >
+                        💬 DMを送る
+                      </button>
+                      
+                      <button onClick={handleToggleFollow} style={{ padding: "8px 16px", background: viewProfile?.is_following ? "#cbd5e1" : "#2563eb", color: viewProfile?.is_following ? "#333" : "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "0.85rem" }}>
+                        {viewProfile?.is_following ? "フォロー中 ✓" : "➕ フォローする"}
+                      </button>
+                    </div>
                   )}
                 </div>
 
                 <div style={{ padding: "15px", backgroundColor: "#f8fafc", borderRadius: "10px", marginBottom: "20px" }}>
-                  <div><strong>メールアドレス:</strong> {viewProfile.email}</div>
+                  <div><strong>メールアドレス:</strong> {viewProfile?.email || "未設定"}</div>
                   
                   {/* ⭐【パワーアップ】フォロー・フォロワー欄をクリックして一覧表示できるように改良 */}
                   <div style={{ display: "flex", gap: "15px", marginTop: "10px", fontSize: "0.9rem" }}>
-                    <div style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }} onClick={() => setShowFollowList(showFollowList === "following" ? null : "following")}>
-                      <strong>フォロー:</strong> {viewProfile.following_count || 0} 人
+                    <div style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }} onClick={() => setShowFollowList?.(showFollowList === "following" ? null : "following")}>
+                      <strong>フォロー:</strong> {viewProfile?.following_count || 0} 人
                     </div>
-                    <div style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }} onClick={() => setShowFollowList(showFollowList === "followers" ? null : "followers")}>
-                      <strong>フォロワー:</strong> {viewProfile.follower_count || 0} 人
+                    <div style={{ cursor: "pointer", color: "#2563eb", textDecoration: "underline" }} onClick={() => setShowFollowList?.(showFollowList === "followers" ? null : "followers")}>
+                      <strong>フォロワー:</strong> {viewProfile?.follower_count || 0} 人
                     </div>
-                    <div><strong>評価数:</strong> {viewProfile.reviews ? viewProfile.reviews.length : 0} 件</div>
+                    <div><strong>評価数:</strong> {viewProfile?.reviews ? viewProfile.reviews.length : 0} 件</div>
                   </div>
 
                   {/* ⭐ 追加：フォローまたはフォロワーのユーザー一覧を表示するアコーディオン */}
@@ -758,15 +843,15 @@ function App() {
                       <div style={{ fontSize: "0.8rem", fontWeight: "bold", marginBottom: "6px", color: "#475569" }}>
                         {showFollowList === "following" ? "🏃 フォロー中の一覧" : "👥 フォロワーの一覧"}
                       </div>
-                      {((showFollowList === "following" ? viewProfile.following : viewProfile.followers) || []).length === 0 ? (
+                      {((showFollowList === "following" ? viewProfile?.following : viewProfile?.followers) || []).length === 0 ? (
                         <div style={{ fontSize: "0.8rem", color: "#64748b" }}>まだユーザーはいません</div>
                       ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                          {((showFollowList === "following" ? viewProfile.following : viewProfile.followers) || []).map((uEmail, uIdx) => (
+                          {((showFollowList === "following" ? viewProfile?.following : viewProfile?.followers) || []).map((uEmail, uIdx) => (
                             <div key={uIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px dashed #f1f5f9" }}>
                               <span style={{ fontSize: "0.8rem" }}>{uEmail}</span>
                               <button 
-                                onClick={() => { handleUserClick(uEmail); setShowFollowList(null); }}
+                                onClick={() => { handleUserClick?.(uEmail); setShowFollowList?.(null); }}
                                 style={{ padding: "2px 6px", fontSize: "0.75rem", background: "#2563eb", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
                               >
                                 見る
@@ -781,130 +866,179 @@ function App() {
 
                 <div style={{ marginBottom: "20px" }}>
                   <h4 style={{ margin: "0 0 8px 0" }}>📝 自己紹介</h4>
-                  {viewProfile.email === loginUser.email ? (
+                  {viewProfile?.email === loginUser?.email ? (
                     isEditingBio ? (
                       <div>
-                        <textarea value={bioInput} onChange={(e) => setBioInput(e.target.value)} rows="3" style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}/>
+                        <textarea value={bioInput || ""} onChange={(e) => setBioInput?.(e.target.value)} rows="3" style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}/>
                         <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
                           <button onClick={handleUpdateBio} style={{ padding: "6px 12px", background: "#059669", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>保存</button>
-                          <button onClick={() => setIsEditingBio(false)} style={{ padding: "6px 12px", background: "#cbd5e1", border: "none", borderRadius: "6px", cursor: "pointer" }}>キャンセル</button>
+                          <button onClick={() => setIsEditingBio?.(false)} style={{ padding: "6px 12px", background: "#cbd5e1", border: "none", borderRadius: "6px", cursor: "pointer" }}>キャンセル</button>
                         </div>
                       </div>
                     ) : (
                       <div>
-                        <p style={{ whiteSpace: "pre-wrap", background: "#f8fafc", padding: "10px", borderRadius: "8px" }}>{viewProfile.bio || "自己紹介が未設定です。"}</p>
-                        <button onClick={() => setIsEditingBio(true)} style={{ padding: "6px 12px", background: "#475569", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem" }}>自己紹介を編集</button>
+                        <p style={{ whiteSpace: "pre-wrap", background: "#f8fafc", padding: "10px", borderRadius: "8px" }}>{viewProfile?.bio || "自己紹介が未設定です。"}</p>
+                        <button onClick={() => setIsEditingBio?.(true)} style={{ padding: "6px 12px", background: "#475569", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem" }}>自己紹介を編集</button>
                       </div>
                     )
                   ) : (
-                    <p style={{ whiteSpace: "pre-wrap", background: "#f8fafc", padding: "10px", borderRadius: "8px" }}>{viewProfile.bio || "自己紹介はありません。"}</p>
+                    <p style={{ whiteSpace: "pre-wrap", background: "#f8fafc", padding: "10px", borderRadius: "8px" }}>{viewProfile?.bio || "自己紹介はありません。"}</p>
                   )}
                 </div>
 
-                {/* 購入・販売履歴タブエリア */}
-                {viewProfile.email === loginUser.email && (
-                  <div style={{ marginBottom: "25px", borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}>
-                    <h4 style={{ margin: "0 0 12px 0" }}>📋 取引履歴</h4>
-                    
-                    {/* 履歴フィルタータブ */}
-                    <div style={{ display: "flex", background: "#f1f5f9", padding: "4px", borderRadius: "8px", marginBottom: "12px" }}>
-                      <button onClick={() => setHistoryTab("all")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "all" ? "#fff" : "transparent" }}>すべて</button>
-                      <button onClick={() => setHistoryTab("buy")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "buy" ? "#fff" : "transparent" }}>購入履歴</button>
-                      <button onClick={() => setHistoryTab("sell")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "sell" ? "#fff" : "transparent" }}>出品履歴</button>
+                {/* 📦 【新設】このユーザーが出品した商品一覧（誰のプロフィールでも共通で表示される！） */}
+                <div style={{ marginBottom: "25px", borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}>
+                  <h4 style={{ margin: "0 0 12px 0" }}>📦 出品中の商品</h4>
+                  {(!items || items.filter(item => item?.user_email === viewProfile?.email).length === 0) ? (
+                    <p style={{ color: "#64748b", fontSize: "0.9rem" }}>出品中の商品は現在ありません</p>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "10px" }}>
+                      {items.filter(item => item?.user_email === viewProfile?.email).map((item, idx) => (
+                        <div key={idx} style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", backgroundColor: "#fff", fontSize: "0.85rem" }}>
+                          <div style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item?.name || "商品名なし"}</div>
+                          <div style={{ color: "#2563eb", fontWeight: "bold", marginTop: "4px" }}>{(item?.price || 0).toLocaleString()} pt</div>
+                          <div style={{ fontSize: "0.75rem", color: item?.buyer_email ? "#94a3b8" : "#10b981", marginTop: "4px" }}>
+                            {item?.buyer_email ? "❌ 売り切れ" : "🍏 出品中"}
+                          </div>
+                        </div>
+                      ))}
                     </div>
+                  )}
+                </div>
 
-                   {/* 履歴リストの一覧表示 */}
-                    {historyList.length === 0 ? (
-                      <p style={{ color: "#64748b", fontSize: "0.9rem" }}>取引履歴はまだありません</p>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                        {historyList
-                          .filter(h => {
-                            if (historyTab === "buy") return h.buyer_email === loginUser.email;
-                            if (historyTab === "sell") return h.user_email === loginUser.email;
-                            return true;
-                          })
-                          .map((h, idx) => {
-                            const isBuyer = h.buyer_email === loginUser.email;
-                            const hasBuyer = h.buyer_email && h.buyer_email !== "";
-                            
-                            return (
-                              <div key={idx} style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0", backgroundColor: "#fff", fontSize: "0.85rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <div>
-                                  <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold", backgroundColor: isBuyer ? "#dbeafe" : "#d1fae5", color: isBuyer ? "#1e40af" : "#065f46", marginRight: "6px" }}>
-                                    {isBuyer ? "購入" : "出品"}
-                                  </span>
-                                  <strong>{h.name}</strong>
-                                  <div style={{ color: "#64748b", fontSize: "0.75rem", marginTop: "2px" }}>
-                                    価格: {h.price.toLocaleString()}pt | 相手: 
-                                    {/* ⭐【動線追加】取引相手のユーザー名をクリックするとその人のプロフィールへ飛べるリンク化 */}
-                                    {isBuyer ? (
-                                      <span onClick={() => handleUserClick(h.user_email)} style={{ color: "#2563eb", cursor: "pointer", textDecoration: "underline", marginLeft: "4px" }}>{h.user_email?.split("@")[0]}</span>
-                                    ) : (
-                                      hasBuyer ? (
-                                        <span onClick={() => handleUserClick(h.buyer_email)} style={{ color: "#2563eb", cursor: "pointer", textDecoration: "underline", marginLeft: "4px" }}>{h.buyer_email?.split("@")[0]}</span>
-                                      ) : "未購入"
-                                    )}
-                                  </div>
-                                </div>
-                                
-                                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                  <div style={{ 
-                                    fontSize: "0.8rem", 
-                                    fontWeight: "bold", 
-                                    color: h.is_completed ? "#10b981" : h.is_shipped ? "#f59e0b" : (hasBuyer ? "#64748b" : "#3b82f6") 
-                                  }}>
-                                    {h.is_completed ? "取引完了" : h.is_shipped ? "発送済み" : (hasBuyer ? "取引中" : "出品中")}
-                                  </div>
+                {/* 購入・販売履歴タブエリア（viewProfile.emailの制限を外し、誰のプロフィールでも表示！） */}
+                <div style={{ marginBottom: "25px", borderTop: "1px solid #e2e8f0", paddingTop: "20px" }}>
+                  <h4 style={{ margin: "0 0 12px 0" }}>📋 取引履歴</h4>
+                  
+                  {/* 履歴フィルタータブ */}
+                  <div style={{ display: "flex", background: "#f1f5f9", padding: "4px", borderRadius: "8px", marginBottom: "12px" }}>
+                    <button onClick={() => setHistoryTab?.("all")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "all" ? "#fff" : "transparent" }}>すべて</button>
+                    <button onClick={() => setHistoryTab?.("buy")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "buy" ? "#fff" : "transparent" }}>購入履歴</button>
+                    <button onClick={() => setHistoryTab?.("sell")} style={{ flex: 1, padding: "6px", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.85rem", fontWeight: "600", backgroundColor: historyTab === "sell" ? "#fff" : "transparent" }}>出品履歴</button>
+                  </div>
 
-                                  {isBuyer && h.is_shipped && !h.is_completed && (
-                                    <button 
-                                      onClick={() => {
-                                        const rating = prompt("出品者の評価を1〜5の数字で入力してください", "5");
-                                        const comment = prompt("評価コメントを入力してください", "ありがとうございました！");
-                                        if (rating) {
-                                          fetch(`${API_URL}/complete-transaction`, {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ item_id: h.id, user_email: loginUser.email, rating: parseInt(rating, 10), comment: comment })
-                                          }).then(res => {
-                                            if (res.ok) {
-                                              alert("🎉 取引が完了しました！");
-                                              fetchHistory();
-                                            } else {
-                                              alert("評価の送信に失敗しました。");
-                                            }
-                                          });
-                                        }
-                                      }}
-                                      style={{ padding: "4px 8px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "0.75rem", fontWeight: "bold" }}
-                                    >
-                                      🌟 受取評価
-                                    </button>
+
+                  {/* 履歴リストの一覧表示 */}
+                  
+                  {(!historyList || historyList.length === 0) ? (
+                    <p style={{ color: "#64748b", fontSize: "0.9rem" }}>取引履歴はまだありません</p>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {historyList
+                        .filter(h => {
+                          if (!h) return false;
+                          // 名前が全く取れない壊れたデータだけ除外
+                          if (!h.name && !h.item_name) return false; 
+
+                          // 💡 【超重要】出品中（available）以外の「取引中・発送済・完了済」ならすべて取引履歴とみなす！
+                          const isTransaction = h?.trade_status !== "available" || h?.is_shipped || h?.is_completed || (h?.buyer_email && h?.buyer_email !== "");
+                          if (!isTransaction) return false;
+
+                          // 💡 【大文字小文字対策】メールアドレスをすべて小文字に統一して安全に比較する
+                          const itemBuyer = h?.buyer_email?.toLowerCase() || "";
+                          const itemSeller = h?.user_email?.toLowerCase() || "";
+                          const profileEmail = viewProfile?.email?.toLowerCase() || "";
+
+                          // タブごとの切り替えロジック（ズレを完全解消！）
+                          if (historyTab === "buy") return itemBuyer === profileEmail;
+                          if (historyTab === "sell") return itemSeller === profileEmail;
+                          return itemBuyer === profileEmail || itemSeller === profileEmail;
+                        })
+                        .map((h, idx) => {
+                          // 💡 カラム名が不一致（item_name や amount）だった場合にも対応できるように名前と価格を共通化
+                          const displayName = h?.name || h?.item_name || "商品";
+                          const displayPrice = h?.price || h?.amount || 0;
+                          
+                          // 大文字小文字を考慮してバイヤー判定
+                          const isBuyer = (h?.buyer_email?.toLowerCase() || "") === (viewProfile?.email?.toLowerCase() || "");
+                          
+                          return (
+                            <div key={idx} style={{ padding: "10px 12px", borderRadius: "8px", border: "1px solid #e2e8f0", backgroundColor: "#fff", fontSize: "0.85rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div>
+                                <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: "bold", backgroundColor: isBuyer ? "#dbeafe" : "#d1fae5", color: isBuyer ? "#1e40af" : "#065f46", marginRight: "6px" }}>
+                                  {isBuyer ? "購入" : "売却"}
+                                </span>
+                                <strong>{displayName}</strong>
+                                <div style={{ color: "#64748b", fontSize: "0.75rem", marginTop: "2px" }}>
+                                  価格: {displayPrice.toLocaleString()}pt | 相手: 
+                                  {isBuyer ? (
+                                    <span onClick={() => handleUserClick?.(h?.user_email)} style={{ color: "#2563eb", cursor: "pointer", textDecoration: "underline", marginLeft: "4px" }}>{h?.user_email?.split("@")[0]}</span>
+                                  ) : (
+                                    <span onClick={() => handleUserClick?.(h?.buyer_email)} style={{ color: "#2563eb", cursor: "pointer", textDecoration: "underline", marginLeft: "4px" }}>{h?.buyer_email?.split("@")[0]}</span>
                                   )}
                                 </div>
                               </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-                )}
+                              
+                              {/* 右側のステータス ＆ 受取評価ボタン */}
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div style={{ 
+                                  fontSize: "0.8rem", 
+                                  fontWeight: "bold", 
+                                  color: h?.is_completed ? "#10b981" : h?.is_shipped ? "#f59e0b" : "#64748b" 
+                                }}>
+                                  {h?.is_completed ? "取引完了" : h?.is_shipped ? "発送済み" : "取引中"}
+                                </div>
 
+                                {/* 受取評価ができるのは「現在ログインしている自分自身が買い手」で、かつ発送済みの時だけ */}
+                                {(loginUser?.email?.toLowerCase() === viewProfile?.email?.toLowerCase()) && isBuyer && h?.is_shipped && !h?.is_completed && (
+                                  <button 
+                                    onClick={() => {
+                                      const rating = prompt("出品者の評価を1〜5の数字で入力してください", "5");
+                                      const comment = prompt("評価コメントを入力してください", "ありがとうございました！");
+                                      if (rating) {
+                                        fetch(`${API_URL}/complete-transaction`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ item_id: h?.id, user_email: loginUser?.email, rating: parseInt(rating, 10), comment: comment })
+                                        }).then(res => {
+                                          if (res.ok) {
+                                            alert("🎉 取引が完了しました！");
+                                            if (typeof fetchHistory === "function") fetchHistory();
+                                          } else {
+                                            alert("評価の送信に失敗しました。");
+                                          }
+                                        });
+                                      }
+                                    }}
+                                    style={{ padding: "4px 8px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "0.75rem", fontWeight: "bold" }}
+                                  >
+                                    🌟 受取評価
+                                  </button>
+                                )}
+                              </div>
+
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+                
+                {/* 🔍 【デバッグ用】ここに仕込んでデータが届いているか画面で確認する */}
+                <div style={{ backgroundColor: "#fee2e2", padding: "10px", borderRadius: "8px", marginBottom: "15px", border: "1px solid #f87171" }}>
+                  <h5 style={{ margin: "0 0 5px 0", color: "#991b1b" }}>⚙️ デバッグ情報（データが届いているかチェック）</h5>
+                  <p style={{ margin: "0 0 5px 0", fontSize: "0.8rem" }}>現在見ているプロフィールのメール: <strong>{viewProfile?.email}</strong></p>
+                  <p style={{ margin: "0 0 5px 0", fontSize: "0.8rem" }}>バックエンドから届いた件数: <strong>{historyList ? historyList.length : "データ自体がnullまたは未定義"}</strong>件</p>
+                  {historyList && historyList.length > 0 && (
+                    <pre style={{ fontSize: "0.7rem", backgroundColor: "#fff", padding: "5px", overflowX: "auto", maxHeight: "100px" }}>
+                      {JSON.stringify(historyList.slice(0, 1), null, 2)}
+                    </pre>
+                  )}
+                </div>
                 {/* ユーザー評価履歴 */}
                 <div>
                   <h4 style={{ margin: "0 0 10px 0" }}>⭐ 最近の評価一覧</h4>
-                  {!viewProfile.reviews || viewProfile.reviews.length === 0 ? <p style={{ color: "#64748b", fontSize: "0.9rem" }}>まだ評価はありません</p> : (
+                  {!viewProfile?.reviews || viewProfile.reviews.length === 0 ? <p style={{ color: "#64748b", fontSize: "0.9rem" }}>まだ評価はありません</p> : (
                     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                       {viewProfile.reviews.map((r, idx) => (
                         <div key={idx} style={{ padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "0.85rem" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", color: "#ffc107", fontWeight: "bold" }}>
-                            <span>{"★".repeat(r.rating || 5)}</span>
-                            <span style={{ color: "#64748b", cursor: "pointer", textDecoration: "underline" }} onClick={() => handleUserClick(r.reviewer_email)}>
-                              {r.reviewer_email ? r.reviewer_email.split("@")[0] : "ゲスト"}
+                            <span>{"★".repeat(r?.rating || 5)}</span>
+                            <span style={{ color: "#64748b", cursor: "pointer", textDecoration: "underline" }} onClick={() => handleUserClick?.(r?.reviewer_email)}>
+                              {r?.reviewer_email ? r.reviewer_email.split("@")[0] : "ゲスト"}
                             </span>
                           </div>
-                          {r.comment && <div style={{ marginTop: "4px", color: "#334155" }}>{r.comment}</div>}
+                          {r?.comment && <div style={{ marginTop: "4px", color: "#334155" }}>{r.comment}</div>}
                         </div>
                       ))}
                     </div>
@@ -923,31 +1057,30 @@ function App() {
         <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
           <div style={{ width: "90%", maxWidth: "450px", height: "80vh", backgroundColor: "white", borderRadius: "16px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ padding: "15px", background: "#2563eb", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontWeight: "bold", fontSize: "0.95rem" }} onClick={() => { handleUserClick(activeChatUser); setActiveChatUser(null); }}>✉️ DM: <span style={{ textDecoration: "underline", cursor: "pointer" }}>{activeChatUser.split("@")[0]}</span></div>
-              <button onClick={() => setActiveChatUser(null)} style={{ background: "none", border: "none", color: "white", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
+              <div style={{ fontWeight: "bold", fontSize: "0.95rem" }} onClick={() => { handleUserClick?.(activeChatUser); setActiveChatUser?.(null); }}>✉️ DM: <span style={{ textDecoration: "underline", cursor: "pointer" }}>{activeChatUser.split("@")[0]}</span></div>
+              <button onClick={() => setActiveChatUser?.(null)} style={{ background: "none", border: "none", color: "white", fontSize: "1.2rem", cursor: "pointer" }}>✕</button>
             </div>
             <div style={{ flex: 1, padding: "15px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px", backgroundColor: "#f8fafc" }}>
-              {dmMessages.length === 0 ? <p style={{ color: "#94a3b8", textAlign: "center", marginTop: "20px" }}>メッセージはまだありません</p> : dmMessages.map((msg, index) => {
-                const isMe = msg.sender_email === loginUser?.email;
+              {(!dmMessages || dmMessages.length === 0) ? <p style={{ color: "#94a3b8", textAlign: "center", marginTop: "20px" }}>メッセージはまだありません</p> : dmMessages.map((msg, index) => {
+                const isMe = msg?.sender_email === loginUser?.email;
                 return (
                   <div key={index} style={{ alignSelf: isMe ? "flex-end" : "flex-start", maxWidth: "75%" }}>
                     <div style={{ background: isMe ? "#2563eb" : "#e2e8f0", color: isMe ? "white" : "#333", padding: "10px 14px", borderRadius: "12px", borderTopRightRadius: isMe ? 0 : "12px", borderTopLeftRadius: isMe ? "12px" : 0, fontSize: "0.9rem", wordBreak: "break-all" }}>
-                      {msg.message}
+                      {msg?.message}
                     </div>
-                    <div style={{ fontSize: "0.7rem", color: "#94a3b8", textAlign: isMe ? "right" : "left", marginTop: "2px" }}>{msg.created_at}</div>
+                    <div style={{ fontSize: "0.7rem", color: "#94a3b8", textAlign: isMe ? "right" : "left", marginTop: "2px" }}>{msg?.created_at}</div>
                   </div>
                 );
               })}
               <div ref={chatEndRef} />
             </div>
             <form onSubmit={handleSendDm} style={{ display: "flex", padding: "10px", borderTop: "1px solid #e2e8f0" }}>
-              <input type="text" placeholder="メッセージを入力..." value={dmInput} onChange={(e) => setDmInput(e.target.value)} style={{ flex: 1, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none" }}/>
+              <input type="text" placeholder="メッセージを入力..." value={dmInput || ""} onChange={(e) => setDmInput?.(e.target.value)} style={{ flex: 1, padding: "10px", border: "1px solid #cbd5e1", borderRadius: "8px", outline: "none" }}/>
               <button type="submit" style={{ marginLeft: "8px", padding: "10px 16px", background: "#2563eb", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" }}>送信</button>
             </form>
           </div>
         </div>
       )}
-
       {/* 取引受取評価用ポップアップモーダル */}
       {transactionItem && (
         <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1001 }}>
